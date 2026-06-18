@@ -468,8 +468,21 @@ def delete_delivery_log(log_id):
 # ──────────────────────────────────────────
 
 def load_drivers():
-    rows = sb_get("drivers", {"select": "name", "order": "name.asc"})
-    return [r["name"] for r in rows]
+    try:
+        r = requests.get(
+            f"{SUPABASE_URL}/rest/v1/drivers",
+            headers=SB_HEADERS,
+            params={"select": "name", "order": "name.asc"},
+            timeout=10,
+        )
+        if r.ok:
+            return [row["name"] for row in r.json()]
+        else:
+            st.error(f"기사 목록 오류: {r.status_code} - {r.text[:100]}")
+            return []
+    except Exception as e:
+        st.error(f"기사 목록 연결 오류: {e}")
+        return []
 
 def save_drivers(drivers):
     pass  # add/delete 개별 처리
@@ -1299,9 +1312,20 @@ with tab_delivery:
         with drv2:
             if st.button("추가", use_container_width=True, key="add_driver_btn"):
                 if new_driver_name.strip() and new_driver_name.strip() not in drivers:
-                    add_driver(new_driver_name.strip())
-                    st.success(f"'{new_driver_name.strip()}' 추가 완료!")
-                    st.rerun()
+                    try:
+                        r = requests.post(
+                            f"{SUPABASE_URL}/rest/v1/drivers",
+                            headers={**SB_HEADERS, "Prefer": "return=representation"},
+                            json={"name": new_driver_name.strip()},
+                            timeout=10,
+                        )
+                        if r.ok:
+                            st.success(f"'{new_driver_name.strip()}' 추가 완료!")
+                            st.rerun()
+                        else:
+                            st.error(f"Supabase 오류: {r.status_code} - {r.text[:200]}")
+                    except Exception as e:
+                        st.error(f"연결 오류: {e}")
                 elif new_driver_name.strip() in drivers:
                     st.warning("이미 등록된 기사입니다.")
                 else:
