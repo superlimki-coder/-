@@ -483,16 +483,49 @@ def save_drivers(drivers):
     pass  # add/delete 개별 처리
 
 def add_driver(name):
-    sb_upsert("drivers", {"name": name})
-    st.cache_data.clear()
+    """기사 추가 - name unique 체크 후 insert"""
+    try:
+        headers = {**SB_HEADERS, "Prefer": "return=representation"}
+        r = requests.post(
+            f"{SUPABASE_URL}/rest/v1/drivers",
+            headers=headers,
+            json={"name": name},
+            timeout=10,
+        )
+        st.cache_data.clear()
+        return r.ok
+    except Exception:
+        return False
 
 def remove_driver(name):
-    sb_delete("drivers", "name", name)
-    st.cache_data.clear()
+    """기사 삭제"""
+    import urllib.parse
+    try:
+        r = requests.delete(
+            f"{SUPABASE_URL}/rest/v1/drivers",
+            headers=SB_HEADERS,
+            params={"name": f"eq.{name}"},
+            timeout=10,
+        )
+        st.cache_data.clear()
+        return r.ok
+    except Exception:
+        return False
 
 def rename_driver(old_name, new_name):
-    sb_patch("drivers", "name", old_name, {"name": new_name})
-    st.cache_data.clear()
+    """기사 이름 변경"""
+    try:
+        r = requests.patch(
+            f"{SUPABASE_URL}/rest/v1/drivers",
+            headers=SB_HEADERS,
+            params={"name": f"eq.{old_name}"},
+            json={"name": new_name},
+            timeout=10,
+        )
+        st.cache_data.clear()
+        return r.ok
+    except Exception:
+        return False
 
 # ──────────────────────────────────────────
 # 거래처별 품목 (Supabase)
@@ -1531,7 +1564,7 @@ with tab_delivery:
             with cv2:
                 if st.button("변경", key="cust_change_btn", use_container_width=True):
                     st.session_state["_cust_search_open"] = True
-                    st.session_state["_cust_keyword"] = ""
+                    st.session_state.pop("_cust_keyword", None)
                     st.rerun()
             delivery_customer = _confirmed_cust
         else:
@@ -1913,6 +1946,13 @@ function confirm(){
         st.markdown("---")
         st.markdown("**💰 경비 입력** (선택사항 — 출고와 함께 저장)")
 
+        # 경비 입력칸 초기화 (렌더 전에 처리)
+        if st.session_state.pop("_clear_expense_inputs", False):
+            st.session_state["inline_meal_input"] = 0
+            st.session_state["inline_fuel_input"] = 0
+            st.session_state["inline_etc_input"] = 0
+            st.session_state["inline_etc_label"] = ""
+
         with st.expander("💰 경비 추가", expanded=False):
             expenses = load_expenses()
 
@@ -2012,11 +2052,7 @@ function confirm(){
                 st.session_state["delivery_basket"] = []
                 st.session_state["delivery_basket_customer"] = ""
                 st.session_state["_clear_customer_input"] = True
-                # 경비 입력칸 초기화
-                st.session_state["inline_meal_input"] = 0
-                st.session_state["inline_fuel_input"] = 0
-                st.session_state["inline_etc_input"] = 0
-                st.session_state["inline_etc_label"] = ""
+                st.session_state["_clear_expense_inputs"] = True
                 _exp_cnt = sum(1 for a in [meal_amount, fuel_amount, etc_amount] if a > 0)
                 st.success(f"출고일지 저장 완료! ({len(basket)}품목)" +
                            (f" · 경비 {_exp_cnt}건 등록" if _exp_cnt > 0 else ""))
@@ -2211,9 +2247,9 @@ function confirm(){
         # 날짜 입력 + 조회 버튼
         dt1, dt2, dt3 = st.columns([2, 2, 1])
         with dt1:
-            date_from = st.date_input("시작일", value=st.session_state.get("filter_date_from", None), key="filter_date_from")
+            date_from = st.date_input("시작일", key="filter_date_from")
         with dt2:
-            date_to = st.date_input("종료일", value=st.session_state.get("filter_date_to", None), key="filter_date_to")
+            date_to = st.date_input("종료일", key="filter_date_to")
         with dt3:
             st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
             st.button("조회", key="btn_search_delivery", use_container_width=True, type="primary")
