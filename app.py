@@ -1380,14 +1380,21 @@ with tab_delivery:
 
         # 저장 후 초기화
         if st.session_state.pop("_clear_customer_input", False):
-            st.session_state.pop("cust_all_dropdown", None)
+            st.session_state["_cust_override"] = "— 거래처 선택 —"
             st.session_state["delivery_basket"] = []
 
         # 거래처명
         _all_customers_for_ac = load_customers()
         _company_list = sorted([c.get("company","") for c in _all_customers_for_ac if c.get("company")])
         _cust_opts = ["— 거래처 선택 —"] + _company_list
-        _sel_cust = st.selectbox("거래처명", options=_cust_opts, key="cust_all_dropdown")
+        # 거래처 관리에서 선택 시 override
+        _override = st.session_state.pop("_cust_override", None)
+        if _override and _override in _cust_opts:
+            _default_idx = _cust_opts.index(_override)
+        else:
+            _prev = st.session_state.get("cust_all_dropdown", "— 거래처 선택 —")
+            _default_idx = _cust_opts.index(_prev) if _prev in _cust_opts else 0
+        _sel_cust = st.selectbox("거래처명", options=_cust_opts, index=_default_idx, key="cust_all_dropdown")
         delivery_customer = _sel_cust if _sel_cust != "— 거래처 선택 —" else ""
 
         # 거래처 관리
@@ -1427,7 +1434,7 @@ with tab_delivery:
                         st.markdown(f"**{c.get('company','-')}**{'  ' + _sub if _sub else ''}")
                     with c2:
                         if st.button("선택", key=f"mgmt_sel_{ci}", use_container_width=True):
-                            st.session_state["cust_all_dropdown"] = c.get("company","")
+                            st.session_state["_cust_override"] = c.get("company","")
                             st.rerun()
                     with c3:
                         if st.button("수정", key=f"mgmt_edit_{ci}", use_container_width=True):
