@@ -422,7 +422,6 @@ DEFAULT_SUPPLIER = {
 # 발주서 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=30)
 def load_orders():
     rows = sb_get("orders", {"select": "id,data", "order": "id.desc"})
     return [r["data"] for r in rows if r.get("data")]
@@ -432,11 +431,9 @@ def save_orders(orders):
 
 def upsert_order(order):
     sb_upsert("orders", {"id": order["id"], "data": order})
-    st.cache_data.clear()
 
 def delete_order(order_id):
     sb_delete("orders", "id", order_id)
-    st.cache_data.clear()
 
 def load_order_to_session(order):
     for k, v in order.items():
@@ -450,7 +447,6 @@ def get_default(key, default):
 # 출고일지 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=15)
 def load_delivery_logs():
     rows = sb_get("delivery_logs", {"select": "*", "order": "date.desc,saved_at.desc"})
     return rows if rows else []
@@ -460,21 +456,17 @@ def save_delivery_logs(logs):
 
 def append_delivery_log(log):
     sb_upsert("delivery_logs", log)
-    st.cache_data.clear()
 
 def update_delivery_log(log_id, data):
     sb_patch("delivery_logs", "id", log_id, data)
-    st.cache_data.clear()
 
 def delete_delivery_log(log_id):
     sb_delete("delivery_logs", "id", log_id)
-    st.cache_data.clear()
 
 # ──────────────────────────────────────────
 # 기사 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=60)
 def load_drivers():
     rows = sb_get("drivers", {"select": "name", "order": "name.asc"})
     return [r["name"] for r in rows]
@@ -483,23 +475,18 @@ def save_drivers(drivers):
     pass  # add/delete 개별 처리
 
 def add_driver(name):
-    """기사 추가 - name unique 체크 후 insert"""
     try:
-        headers = {**SB_HEADERS, "Prefer": "return=representation"}
         r = requests.post(
             f"{SUPABASE_URL}/rest/v1/drivers",
-            headers=headers,
+            headers={**SB_HEADERS, "Prefer": "return=representation"},
             json={"name": name},
             timeout=10,
         )
-        st.cache_data.clear()
         return r.ok
     except Exception:
         return False
 
 def remove_driver(name):
-    """기사 삭제"""
-    import urllib.parse
     try:
         r = requests.delete(
             f"{SUPABASE_URL}/rest/v1/drivers",
@@ -507,13 +494,11 @@ def remove_driver(name):
             params={"name": f"eq.{name}"},
             timeout=10,
         )
-        st.cache_data.clear()
         return r.ok
     except Exception:
         return False
 
 def rename_driver(old_name, new_name):
-    """기사 이름 변경"""
     try:
         r = requests.patch(
             f"{SUPABASE_URL}/rest/v1/drivers",
@@ -522,7 +507,6 @@ def rename_driver(old_name, new_name):
             json={"name": new_name},
             timeout=10,
         )
-        st.cache_data.clear()
         return r.ok
     except Exception:
         return False
@@ -531,7 +515,6 @@ def rename_driver(old_name, new_name):
 # 거래처별 품목 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=30)
 def load_items():
     rows = sb_get("items", {"select": "*", "order": "updated_at.desc"})
     result = {}
@@ -559,13 +542,11 @@ def upsert_item(customer, item_name, item_size="", qty=0):
         "qty": int(qty),
         "updated_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
     })
-    st.cache_data.clear()
 
 def delete_item(customer, item_name, item_size=""):
     rows = sb_get("items", {"customer": f"eq.{customer}", "name": f"eq.{item_name}", "size": f"eq.{item_size}"})
     for r in rows:
         sb_delete("items", "id", r["id"])
-    st.cache_data.clear()
 
 def get_customer_items(customer):
     rows = sb_get("items", {"customer": f"eq.{customer}", "select": "*", "order": "updated_at.desc", "limit": "20"})
@@ -575,7 +556,6 @@ def get_customer_items(customer):
 # 공급자 프로필 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=60)
 def load_suppliers():
     rows = sb_get("suppliers", {"select": "id,data"})
     result = [r["data"] for r in rows if r.get("data")]
@@ -586,17 +566,14 @@ def save_suppliers(suppliers):
 
 def upsert_supplier(supplier):
     sb_upsert("suppliers", {"id": supplier["id"], "data": supplier})
-    st.cache_data.clear()
 
 def delete_supplier(supplier_id):
     sb_delete("suppliers", "id", supplier_id)
-    st.cache_data.clear()
 
 # ──────────────────────────────────────────
 # 최근 원료값 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=300)
 def load_last_raw_price():
     rows = sb_get("settings", {"key": "eq.raw_price", "select": "value"})
     if rows:
@@ -608,13 +585,11 @@ def load_last_raw_price():
 
 def save_last_raw_price(value):
     sb_upsert("settings", {"key": "raw_price", "value": str(int(value))})
-    st.cache_data.clear()
 
 # ──────────────────────────────────────────
 # 거래처 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=30)
 def load_customers():
     rows = sb_get("customers", {"select": "*", "order": "company.asc"})
     return rows if rows else []
@@ -624,11 +599,9 @@ def save_customers(customers):
 
 def upsert_customer(customer):
     sb_upsert("customers", customer)
-    st.cache_data.clear()
 
 def delete_customer(customer_id):
     sb_delete("customers", "id", customer_id)
-    st.cache_data.clear()
 
 # ──────────────────────────────────────────
 # 유틸 함수
@@ -778,7 +751,6 @@ def calc_quote(
 # 기사 경비 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=15)
 def load_expenses():
     rows = sb_get("expenses", {"select": "*", "order": "date.desc,saved_at.desc"})
     return rows if rows else []
@@ -788,11 +760,9 @@ def save_expenses(expenses):
 
 def append_expense(exp):
     sb_upsert("expenses", exp)
-    st.cache_data.clear()
 
 def delete_expense(exp_id):
     sb_delete("expenses", "id", exp_id)
-    st.cache_data.clear()
 
 # 경비 카테고리
 EXPENSE_CATEGORIES = ["🍱 식사", "⛽ 주유", "🅿️ 주차", "🛣️ 통행료", "📦 기타"]
