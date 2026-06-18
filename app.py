@@ -1906,6 +1906,57 @@ function confirm(){
                 except Exception:
                     pass
 
+        # ── 경비 입력 (출고와 같은 날짜/기사로 함께 등록) ──
+        st.markdown("---")
+        st.markdown("**💰 경비 입력** (선택사항 — 출고와 함께 저장)")
+
+        with st.expander("💰 경비 추가", expanded=False):
+            expenses = load_expenses()
+
+            # 식비
+            exp_c1, exp_c2 = st.columns([3, 2])
+            with exp_c1:
+                st.markdown("<div style='font-size:16px;font-weight:700;'>🍱 식비</div>", unsafe_allow_html=True)
+            with exp_c2:
+                meal_amount = st.number_input("식비", min_value=0, value=0, step=1000,
+                                              key="inline_meal_input", label_visibility="collapsed")
+
+            # 주유비
+            exp_c3, exp_c4 = st.columns([3, 2])
+            with exp_c3:
+                st.markdown("<div style='font-size:16px;font-weight:700;'>⛽ 주유비</div>", unsafe_allow_html=True)
+            with exp_c4:
+                fuel_amount = st.number_input("주유비", min_value=0, value=0, step=1000,
+                                              key="inline_fuel_input", label_visibility="collapsed")
+
+            # 기타비용
+            exp_c5, exp_c6 = st.columns([3, 2])
+            with exp_c5:
+                etc_label = st.text_input("기타 항목명", key="inline_etc_label",
+                                         placeholder="예) 주차비, 통행료", label_visibility="collapsed")
+            with exp_c6:
+                etc_amount = st.number_input("기타비용", min_value=0, value=0, step=1000,
+                                             key="inline_etc_input", label_visibility="collapsed")
+
+            # 입력된 경비 미리보기
+            _preview_exps = []
+            if meal_amount > 0:
+                _preview_exps.append(f"🍱 식비 {meal_amount:,}원")
+            if fuel_amount > 0:
+                _preview_exps.append(f"⛽ 주유비 {fuel_amount:,}원")
+            if etc_amount > 0:
+                _preview_exps.append(f"📦 {etc_label or '기타'} {etc_amount:,}원")
+
+            if _preview_exps:
+                st.markdown(
+                    f"<div style='background:#fefce8;border:1px solid #fde68a;border-radius:8px;"
+                    f"padding:8px 12px;font-size:15px;font-weight:700;color:#92400e;'>"
+                    f"💰 경비 합계: {meal_amount+fuel_amount+etc_amount:,}원 "
+                    f"<span style='font-size:13px;font-weight:500;'>({' / '.join(_preview_exps)})</span>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
         if st.button("💾 출고일지 저장", use_container_width=True, key="save_delivery_btn", type="primary"):
             basket = st.session_state.get("delivery_basket", [])
             if not delivery_customer.strip():
@@ -1937,10 +1988,40 @@ function confirm(){
                     upsert_item(delivery_customer.strip(), b["name"], b.get("size",""), int(b["qty"]))
 
                 save_delivery_logs(delivery_logs)
+
+                # 경비 함께 저장
+                expenses = load_expenses()
+                _exp_date_str = delivery_date.strftime("%Y-%m-%d")
+                _exp_saved_at = now_kst().strftime("%Y-%m-%d %H:%M:%S")
+                if meal_amount > 0:
+                    expenses.append({"id": str(uuid.uuid4()), "driver": delivery_driver,
+                                     "date": _exp_date_str, "category": "🍱 식사",
+                                     "amount": int(meal_amount), "memo": "",
+                                     "saved_at": _exp_saved_at})
+                if fuel_amount > 0:
+                    expenses.append({"id": str(uuid.uuid4()), "driver": delivery_driver,
+                                     "date": _exp_date_str, "category": "⛽ 주유",
+                                     "amount": int(fuel_amount), "memo": "",
+                                     "saved_at": _exp_saved_at})
+                if etc_amount > 0:
+                    expenses.append({"id": str(uuid.uuid4()), "driver": delivery_driver,
+                                     "date": _exp_date_str, "category": f"📦 {etc_label or '기타'}",
+                                     "amount": int(etc_amount), "memo": "",
+                                     "saved_at": _exp_saved_at})
+                if meal_amount > 0 or fuel_amount > 0 or etc_amount > 0:
+                    save_expenses(expenses)
+
                 st.session_state["delivery_basket"] = []
                 st.session_state["delivery_basket_customer"] = ""
                 st.session_state["_clear_customer_input"] = True
-                st.success(f"출고일지 저장 완료! ({len(basket)}품목)")
+                # 경비 입력칸 초기화
+                st.session_state["inline_meal_input"] = 0
+                st.session_state["inline_fuel_input"] = 0
+                st.session_state["inline_etc_input"] = 0
+                st.session_state["inline_etc_label"] = ""
+                _exp_cnt = sum(1 for a in [meal_amount, fuel_amount, etc_amount] if a > 0)
+                st.success(f"출고일지 저장 완료! ({len(basket)}품목)" +
+                           (f" · 경비 {_exp_cnt}건 등록" if _exp_cnt > 0 else ""))
                 st.rerun()
 
     st.markdown("---")
