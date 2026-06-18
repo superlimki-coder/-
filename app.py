@@ -1362,139 +1362,185 @@ with tab_delivery:
     if not drivers:
         st.warning("먼저 기사 관리에서 배송 기사를 추가해 주세요.")
     else:
-        # ── 거래처 검색 / 추가 ──
-        with st.expander("🏢 거래처 검색 / 추가", expanded=False):
+        # ── 거래처 선택 / 등록 / 수정 ──
+        with st.expander("🏢 거래처 선택 / 등록 / 수정", expanded=True):
             delivery_customers = load_customers()
+            if "delivery_customer_ac" not in st.session_state:
+                st.session_state["delivery_customer_ac"] = ""
 
-            # 검색창
-            dc_s1, dc_s2 = st.columns([5, 1])
-            with dc_s1:
+            st.markdown(
+                "<div style='font-size:17px;font-weight:800;margin-bottom:8px;'>"
+                "거래처를 검색해서 선택하거나, 새 거래처를 바로 등록하세요."
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+            search_col, add_col = st.columns([4, 1])
+            with search_col:
                 delivery_cust_search = st.text_input(
-                    "거래처 검색", placeholder="🔍 거래처명 검색",
-                    label_visibility="collapsed", key="delivery_cust_search",
+                    "거래처 검색",
+                    placeholder="거래처명 / 담당자 / 연락처 검색",
+                    label_visibility="collapsed",
+                    key="delivery_cust_search",
                 )
-            with dc_s2:
-                if st.button("➕ 새 거래처 추가", use_container_width=True, key="open_add_delivery_cust"):
+            with add_col:
+                if st.button("➕ 신규등록", use_container_width=True, key="open_add_delivery_cust"):
                     st.session_state["show_add_delivery_cust"] = not st.session_state.get("show_add_delivery_cust", False)
 
-            # 새 거래처 추가 폼
+            selected_customer_name = st.session_state.get("delivery_customer_ac", "")
+            if selected_customer_name:
+                st.markdown(
+                    f"<div style='background:#f0fdf4;border:1px solid #86efac;border-radius:10px;"
+                    f"padding:10px 14px;margin:8px 0 12px 0;font-size:18px;font-weight:900;color:#166534;'>"
+                    f"✅ 선택된 거래처: {selected_customer_name}</div>",
+                    unsafe_allow_html=True,
+                )
+
             if st.session_state.get("show_add_delivery_cust", False):
-                st.markdown("**새 거래처 등록**")
+                st.markdown("#### ➕ 새 거래처 등록")
                 nc1, nc2 = st.columns(2)
                 with nc1:
-                    new_cust_name = st.text_input("거래처명 *", key="new_del_cust_name", placeholder="필수 입력")
-                    new_cust_person = st.text_input("담당자", key="new_del_cust_person")
+                    new_cust_name = st.text_input("거래처명 *", key="new_del_cust_name", placeholder="예: 대봉상사")
+                    new_cust_person = st.text_input("담당자", key="new_del_cust_person", placeholder="예: 김대리")
                 with nc2:
-                    new_cust_tel = st.text_input("연락처", key="new_del_cust_tel")
-                    new_cust_memo = st.text_input("비고", key="new_del_cust_memo")
-                new_cust_addr = st.text_input("주소", key="new_del_cust_addr", placeholder="주소 입력")
-                if st.button("💾 거래처 저장", key="save_new_del_cust_btn", use_container_width=True, type="primary"):
-                    if not new_cust_name.strip():
-                        st.error("거래처명을 입력해 주세요.")
-                    else:
-                        existing_c = next(
-                            (c for c in delivery_customers if c.get("company") == new_cust_name.strip()),
-                            None,
-                        )
-                        upsert_customer({
-                            "id": existing_c["id"] if existing_c else str(uuid.uuid4()),
-                            "company": new_cust_name.strip(),
-                            "person": new_cust_person.strip(),
-                            "customer_tel": new_cust_tel.strip(),
-                            "ref_text": new_cust_memo.strip(),
-                            "address": new_cust_addr.strip(),
-                            "payment_terms": "",
-                        })
-                        st.success(f"'{new_cust_name.strip()}' 저장 완료!")
+                    new_cust_tel = st.text_input("연락처", key="new_del_cust_tel", placeholder="예: 010-0000-0000")
+                    new_cust_memo = st.text_input("비고", key="new_del_cust_memo", placeholder="납품 메모 등")
+                new_cust_addr = st.text_input("주소", key="new_del_cust_addr", placeholder="배송 주소")
+
+                sv_new1, sv_new2 = st.columns([1, 1])
+                with sv_new1:
+                    if st.button("💾 저장 후 선택", key="save_new_del_cust_btn", use_container_width=True, type="primary"):
+                        if not new_cust_name.strip():
+                            st.error("거래처명을 입력해 주세요.")
+                        else:
+                            existing_c = next(
+                                (c for c in delivery_customers if c.get("company") == new_cust_name.strip()),
+                                None,
+                            )
+                            upsert_customer({
+                                "id": existing_c["id"] if existing_c else str(uuid.uuid4()),
+                                "company": new_cust_name.strip(),
+                                "person": new_cust_person.strip(),
+                                "customer_tel": new_cust_tel.strip(),
+                                "ref_text": new_cust_memo.strip(),
+                                "address": new_cust_addr.strip(),
+                                "payment_terms": "",
+                            })
+                            st.session_state["delivery_customer_ac"] = new_cust_name.strip()
+                            st.session_state["delivery_customer_select"] = new_cust_name.strip()
+                            st.session_state["show_add_delivery_cust"] = False
+                            st.success(f"'{new_cust_name.strip()}' 저장 및 선택 완료!")
+                            st.rerun()
+                with sv_new2:
+                    if st.button("닫기", key="close_new_del_cust_btn", use_container_width=True):
                         st.session_state["show_add_delivery_cust"] = False
                         st.rerun()
 
-            st.markdown("---")
+                st.markdown("---")
 
-            # 검색 결과 목록
             if delivery_customers:
                 filtered_custs = delivery_customers
                 if delivery_cust_search.strip():
                     q_dc = delivery_cust_search.strip().lower()
                     filtered_custs = [
                         c for c in delivery_customers
-                        if q_dc in str(c.get("company","")).lower()
-                        or q_dc in str(c.get("person","")).lower()
+                        if q_dc in str(c.get("company", "")).lower()
+                        or q_dc in str(c.get("person", "")).lower()
+                        or q_dc in str(c.get("customer_tel", "")).lower()
+                        or q_dc in str(c.get("address", "")).lower()
                     ]
 
+                filtered_custs = sorted(filtered_custs, key=lambda x: x.get("company", ""))[:50]
+
                 if not filtered_custs:
-                    st.caption("검색 결과가 없습니다.")
+                    st.warning("검색 결과가 없습니다. 신규등록 버튼으로 추가할 수 있습니다.")
                 else:
-                    st.markdown(f"<div style='font-size:17px;color:#6b7280;font-weight:700;margin-bottom:6px;'>총 {len(filtered_custs)}개</div>", unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='font-size:16px;color:#6b7280;font-weight:800;margin:6px 0;'>"
+                        f"검색 결과 {len(filtered_custs)}개</div>",
+                        unsafe_allow_html=True,
+                    )
 
-                    with st.container():
-                        for ci, c in enumerate(filtered_custs):
-                            person_text = c.get('person','')
-                            tel_text = c.get('customer_tel','')
-                            sub_parts = [x for x in [person_text, tel_text] if x]
-                            sub_line = " · ".join(sub_parts) if sub_parts else ""
+                    for ci, c in enumerate(filtered_custs):
+                        cust_id = c.get("id", str(ci))
+                        person_text = c.get("person", "")
+                        tel_text = c.get("customer_tel", "")
+                        addr_text = c.get("address", "")
+                        memo_text = c.get("ref_text", "")
+                        sub_parts = [x for x in [person_text, tel_text] if x]
+                        sub_line = " · ".join(sub_parts) if sub_parts else "담당자/연락처 미입력"
+                        is_selected = c.get("company", "") == st.session_state.get("delivery_customer_ac", "")
+                        bg = "#f0fdf4" if is_selected else "#ffffff"
+                        border = "#86efac" if is_selected else "#e5e7eb"
 
-                            col_info, col_sel, col_edit, col_del = st.columns([5, 1, 1, 1])
+                        row_info, row_select, row_edit, row_delete = st.columns([5, 1, 1, 1])
+                        with row_info:
+                            st.markdown(
+                                f"<div style='background:{bg};border:1px solid {border};border-radius:10px;"
+                                f"padding:10px 12px;line-height:1.35;margin-bottom:4px;'>"
+                                f"<div style='font-size:18px;font-weight:900;color:#111827;'>{'✅ ' if is_selected else '🏢 '}{c.get('company','-')}</div>"
+                                f"<div style='font-size:16px;font-weight:700;color:#6b7280;'>{sub_line}</div>"
+                                f"{('<div style=\"font-size:15px;font-weight:700;color:#9ca3af;\">📍 ' + addr_text + '</div>') if addr_text else ''}"
+                                f"{('<div style=\"font-size:15px;font-weight:700;color:#9ca3af;\">📝 ' + memo_text + '</div>') if memo_text else ''}"
+                                f"</div>",
+                                unsafe_allow_html=True,
+                            )
+                        with row_select:
+                            if st.button("선택", key=f"sel_del_cust_{cust_id}_{ci}", use_container_width=True, type="primary" if is_selected else "secondary"):
+                                st.session_state["delivery_customer_ac"] = c.get("company", "")
+                                st.session_state["delivery_customer_select"] = c.get("company", "")
+                                st.rerun()
+                        with row_edit:
+                            if st.button("수정", key=f"edit_del_cust_{cust_id}_{ci}", use_container_width=True):
+                                st.session_state["editing_customer_id"] = cust_id if st.session_state.get("editing_customer_id") != cust_id else ""
+                                st.rerun()
+                        with row_delete:
+                            if st.button("삭제", key=f"del_del_cust_{cust_id}_{ci}", use_container_width=True):
+                                delete_customer(c.get("id", ""))
+                                if st.session_state.get("delivery_customer_ac") == c.get("company", ""):
+                                    st.session_state["delivery_customer_ac"] = ""
+                                st.rerun()
 
-                            with col_info:
-                                addr_line = c.get('address','')
-                                st.markdown(
-                                    f"<div style='padding:6px 2px;line-height:1.3;'>"
-                                    f"<div style='font-size:17px;font-weight:800;color:#111827;'>{c.get('company','-')}</div>"
-                                    f"<div style='font-size:17px;color:#6b7280;'>{sub_line}</div>"
-                                    f"{'<div style="font-size:17px;color:#9ca3af;">📍 ' + addr_line + '</div>' if addr_line else ''}"
-                                    f"</div>",
-                                    unsafe_allow_html=True,
-                                )
-                            with col_sel:
-                                if st.button("선택", key=f"sel_del_cust_{ci}", use_container_width=True):
-                                    st.session_state["delivery_customer_ac"] = c.get("company", "")
-                                    st.session_state["delivery_customer_select"] = c.get("company", "")
-                                    st.session_state["_cust_search_open"] = False
+                        if st.session_state.get("editing_customer_id") == cust_id:
+                            st.markdown("**거래처 정보 수정**")
+                            ec1, ec2, ec3 = st.columns([3, 2, 2])
+                            with ec1:
+                                edit_company = st.text_input("거래처명", value=c.get("company", ""), key=f"edit_cname_{cust_id}")
+                            with ec2:
+                                edit_person = st.text_input("담당자", value=c.get("person", ""), key=f"edit_cperson_{cust_id}")
+                            with ec3:
+                                edit_tel = st.text_input("연락처", value=c.get("customer_tel", ""), key=f"edit_ctel_{cust_id}")
+                            edit_addr = st.text_input("주소", value=c.get("address", ""), key=f"edit_caddr_{cust_id}")
+                            edit_memo = st.text_input("비고", value=c.get("ref_text", ""), key=f"edit_cmemo_{cust_id}")
+                            save_col, cancel_col = st.columns([1, 1])
+                            with save_col:
+                                if st.button("💾 수정 저장", key=f"save_edit_cust_{cust_id}", use_container_width=True, type="primary"):
+                                    if not edit_company.strip():
+                                        st.error("거래처명을 입력해 주세요.")
+                                    else:
+                                        old_company = c.get("company", "")
+                                        upsert_customer({
+                                            "id": c.get("id", str(uuid.uuid4())),
+                                            "company": edit_company.strip(),
+                                            "person": edit_person.strip(),
+                                            "customer_tel": edit_tel.strip(),
+                                            "ref_text": edit_memo.strip(),
+                                            "address": edit_addr.strip(),
+                                            "payment_terms": c.get("payment_terms", ""),
+                                        })
+                                        if st.session_state.get("delivery_customer_ac") == old_company:
+                                            st.session_state["delivery_customer_ac"] = edit_company.strip()
+                                        st.session_state["editing_customer_id"] = ""
+                                        st.success("수정 완료!")
+                                        st.rerun()
+                            with cancel_col:
+                                if st.button("취소", key=f"cancel_edit_cust_{cust_id}", use_container_width=True):
+                                    st.session_state["editing_customer_id"] = ""
                                     st.rerun()
-                            with col_edit:
-                                if st.button("수정", key=f"edit_del_cust_{ci}", use_container_width=True):
-                                    st.session_state[f"editing_cust_{ci}"] = not st.session_state.get(f"editing_cust_{ci}", False)
-                                    st.rerun()
-                            with col_del:
-                                if st.button("삭제", key=f"del_del_cust_{ci}", use_container_width=True):
-                                    delete_customer(c.get("id", ""))
-                                    st.rerun()
 
-                            # 수정 폼 (인라인)
-                            if st.session_state.get(f"editing_cust_{ci}", False):
-                                with st.container():
-                                    ec1, ec2, ec3 = st.columns([3, 2, 2])
-                                    with ec1:
-                                        new_company = st.text_input("거래처명", value=c.get("company",""), key=f"edit_cname_{ci}", label_visibility="collapsed", placeholder="거래처명")
-                                    with ec2:
-                                        new_person = st.text_input("담당자", value=c.get("person",""), key=f"edit_cperson_{ci}", label_visibility="collapsed", placeholder="담당자")
-                                    with ec3:
-                                        new_tel = st.text_input("연락처", value=c.get("customer_tel",""), key=f"edit_ctel_{ci}", label_visibility="collapsed", placeholder="연락처")
-                                    new_addr = st.text_input("주소", value=c.get("address",""), key=f"edit_caddr_{ci}", label_visibility="collapsed", placeholder="주소")
-                                    sv1, sv2 = st.columns([1,1])
-                                    with sv1:
-                                        if st.button("저장", key=f"save_edit_cust_{ci}", use_container_width=True, type="primary"):
-                                            upsert_customer({
-                                                "id": c.get("id", str(uuid.uuid4())),
-                                                "company": new_company.strip(),
-                                                "person": new_person.strip(),
-                                                "customer_tel": new_tel.strip(),
-                                                "ref_text": c.get("ref_text",""),
-                                                "address": new_addr.strip(),
-                                                "payment_terms": c.get("payment_terms",""),
-                                            })
-                                            st.session_state[f"editing_cust_{ci}"] = False
-                                            st.success("수정 완료!")
-                                            st.rerun()
-                                    with sv2:
-                                        if st.button("취소", key=f"cancel_edit_cust_{ci}", use_container_width=True):
-                                            st.session_state[f"editing_cust_{ci}"] = False
-                                            st.rerun()
-
-                            st.markdown("<hr style='margin:1px 0;border:0;border-top:1px solid #f3f4f6;'>", unsafe_allow_html=True)
+                        st.markdown("<hr style='margin:4px 0;border:0;border-top:1px solid #f3f4f6;'>", unsafe_allow_html=True)
             else:
-                st.info("등록된 거래처가 없습니다. 위에서 새 거래처를 추가해 주세요.")
+                st.info("등록된 거래처가 없습니다. 신규등록 버튼으로 먼저 추가해 주세요.")
 
         # ── 출고 입력 폼 ──
         d1, d2 = st.columns([2, 2])
@@ -1506,83 +1552,11 @@ with tab_delivery:
         # 저장 완료 후 거래처명 초기화 (렌더 전에 처리)
         if st.session_state.pop("_clear_customer_input", False):
             st.session_state["delivery_customer_ac"] = ""
-            st.session_state["_cust_search_open"] = False
 
-        # ── 거래처명: 찾기/직접입력 토글 방식 ──
-        _all_customers_for_ac = load_customers()
-        _company_list = [c.get("company","") for c in _all_customers_for_ac if c.get("company")]
-        _confirmed_cust = st.session_state.get("delivery_customer_ac", "")
-        _search_open = st.session_state.get("_cust_search_open", False)
-
-        # 확정된 거래처 표시 + 찾기/변경 버튼
-        if _confirmed_cust and not _search_open:
-            # 거래처 선택 완료 상태
-            cv1, cv2 = st.columns([5, 1])
-            with cv1:
-                st.markdown(
-                    f"<div style='background:#f0fdf4;border:1px solid #86efac;border-radius:8px;"
-                    f"padding:8px 14px;font-size:17px;font-weight:800;color:#166534;'>"
-                    f"🏢 {_confirmed_cust}</div>",
-                    unsafe_allow_html=True,
-                )
-            with cv2:
-                if st.button("변경", key="cust_change_btn", use_container_width=True):
-                    st.session_state["_cust_search_open"] = True
-                    st.session_state["_cust_keyword"] = ""
-                    st.rerun()
-            delivery_customer = _confirmed_cust
-        else:
-            # 검색 입력 상태
-            _keyword = st.text_input(
-                "거래처명",
-                key="_cust_keyword",
-                placeholder="한 글자만 입력해도 자동검색",
-            )
-
-            if _keyword.strip():
-                _q = _keyword.strip().lower()
-                _matched = [c for c in _company_list if _q in c.lower()]
-                if _matched:
-                    # 드롭다운 방식으로 선택
-                    _dropdown_options = ["— 선택하세요 —"] + _matched[:10]
-                    _sel = st.selectbox(
-                        "검색 결과",
-                        options=_dropdown_options,
-                        key="cust_search_dropdown",
-                        label_visibility="collapsed",
-                    )
-                    if _sel != "— 선택하세요 —":
-                        st.session_state["delivery_customer_ac"] = _sel
-                        st.session_state["_cust_search_open"] = False
-                        st.session_state["delivery_customer_select"] = _sel
-                        st.rerun()
-                else:
-                    st.caption("일치하는 거래처가 없습니다.")
-                    if st.button("✅ 이 이름으로 사용", key="use_direct_name_btn", use_container_width=True):
-                        st.session_state["delivery_customer_ac"] = _keyword.strip()
-                        st.session_state["_cust_search_open"] = False
-                        st.rerun()
-            else:
-                # 입력 전: 전체 목록 드롭다운
-                if _company_list:
-                    _dropdown_all = ["— 거래처 선택 —"] + _company_list
-                    _sel_all = st.selectbox(
-                        "전체 거래처",
-                        options=_dropdown_all,
-                        key="cust_all_dropdown",
-                        label_visibility="collapsed",
-                    )
-                    if _sel_all != "— 거래처 선택 —":
-                        st.session_state["delivery_customer_ac"] = _sel_all
-                        st.session_state["_cust_search_open"] = False
-                        st.rerun()
-
-            if _confirmed_cust:
-                if st.button("↩ 취소", key="cust_cancel_btn"):
-                    st.session_state["_cust_search_open"] = False
-                    st.rerun()
-
-            delivery_customer = st.session_state.get("delivery_customer_ac", "") or _keyword.strip()
+        # 거래처는 위의 "거래처 선택 / 등록 / 수정" 탭에서만 선택합니다.
+        delivery_customer = st.session_state.get("delivery_customer_ac", "").strip()
+        if not delivery_customer:
+            st.info("위의 거래처 선택 / 등록 / 수정 영역에서 거래처를 먼저 선택해 주세요.")
 
         # ── 품목 선택 (다품목, 체크박스 방식) ──
         cust_items = get_customer_items(delivery_customer.strip()) if delivery_customer.strip() else []
