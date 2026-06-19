@@ -422,7 +422,7 @@ DEFAULT_SUPPLIER = {
 # 발주서 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_orders():
     rows = sb_get("orders", {"select": "id,data", "order": "id.desc"})
     return [r["data"] for r in rows if r.get("data")]
@@ -450,7 +450,7 @@ def get_default(key, default):
 # 출고일지 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=30)
 def load_delivery_logs():
     rows = sb_get("delivery_logs", {"select": "*", "order": "date.desc,saved_at.desc"})
     return rows if rows else []
@@ -474,7 +474,7 @@ def delete_delivery_log(log_id):
 # 기사 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=120)
+@st.cache_data(ttl=600)
 def load_drivers():
     try:
         r = requests.get(
@@ -536,7 +536,7 @@ def rename_driver(old_name, new_name):
 # 거래처별 품목 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_items():
     rows = sb_get("items", {"select": "*", "order": "updated_at.desc"})
     result = {}
@@ -614,7 +614,7 @@ def save_last_raw_price(value):
 # 거래처 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=300)
 def load_customers():
     rows = sb_get("customers", {"select": "*", "order": "company.asc"})
     return rows if rows else []
@@ -778,7 +778,7 @@ def calc_quote(
 # 기사 경비 (Supabase)
 # ──────────────────────────────────────────
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=30)
 def load_expenses():
     rows = sb_get("expenses", {"select": "*", "order": "date.desc,saved_at.desc"})
     return rows if rows else []
