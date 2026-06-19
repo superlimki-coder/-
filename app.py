@@ -503,6 +503,8 @@ def add_driver(name):
             json={"name": name},
             timeout=10,
         )
+        if r.ok:
+            st.cache_data.clear()
         return r.ok
     except Exception:
         return False
@@ -515,6 +517,8 @@ def remove_driver(name):
             params={"name": f"eq.{name}"},
             timeout=10,
         )
+        if r.ok:
+            st.cache_data.clear()
         return r.ok
     except Exception:
         return False
@@ -528,6 +532,8 @@ def rename_driver(old_name, new_name):
             json={"name": new_name},
             timeout=10,
         )
+        if r.ok:
+            st.cache_data.clear()
         return r.ok
     except Exception:
         return False
@@ -564,6 +570,7 @@ def upsert_item(customer, item_name, item_size="", qty=0):
         "qty": int(qty),
         "updated_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
     })
+    st.cache_data.clear()
 
 def delete_item(customer, item_name, item_size=""):
     rows = sb_get("items", {"customer": f"eq.{customer}", "name": f"eq.{item_name}", "size": f"eq.{item_size}"})
