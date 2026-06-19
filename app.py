@@ -1321,8 +1321,8 @@ with tab_orders:
 with tab_delivery:
     st.session_state["current_tab"] = "delivery"
     st.subheader("🚚 대봉 출고일지")
-    delivery_logs = load_delivery_logs()
     drivers = load_drivers()
+    delivery_logs = load_delivery_logs() if st.session_state.get("show_delivery_logs", False) else []
 
     # ── 기사 관리 ──
     with st.expander("👤 배송 기사 관리", expanded=False):
@@ -1659,8 +1659,8 @@ function confirm(){if(!cap)return;var doc=window.parent.document;var inp=doc.que
     st.markdown("---")
 
     # ── 경비 현황 ──
-    expenses = load_expenses()
     with st.expander("💰 기사 경비 현황", expanded=False):
+        expenses = load_expenses()
         if expenses:
             _exp_drivers = sorted(set(e.get("driver","") for e in expenses))
             _exp_drv_filter = st.radio("기사", ["전체"] + _exp_drivers, horizontal=True, key="exp_driver_filter", label_visibility="collapsed")
@@ -1722,7 +1722,10 @@ function confirm(){if(!cap)return;var doc=window.parent.document;var inp=doc.que
     # ── 출고일지 조회 ──
     st.markdown("### 📋 출고일지 조회")
 
-    if delivery_logs:
+    if st.button("🔍 출고일지 조회", key="load_logs_btn", use_container_width=True):
+        st.session_state["show_delivery_logs"] = True
+
+    if st.session_state.get("show_delivery_logs", False) and delivery_logs:
         # 기사 필터
         _all_drvs = sorted(set(l.get("driver","") for l in delivery_logs))
         selected_driver_filter = st.radio("기사", ["전체"] + _all_drvs, horizontal=True,
@@ -1856,7 +1859,7 @@ function confirm(){if(!cap)return;var doc=window.parent.document;var inp=doc.que
                 file_name=f"delivery_{now_kst().strftime('%Y%m%d')}.csv",
                 mime="text/csv", use_container_width=True,
             )
-    else:
+    elif st.session_state.get("show_delivery_logs", False):
         st.info("아직 저장된 출고일지가 없습니다.")
 
 # ══════════════════════════════════════════
