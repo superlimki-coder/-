@@ -1320,549 +1320,539 @@ with tab_orders:
 
 with tab_delivery:
     st.session_state["current_tab"] = "delivery"
-    st.subheader("🚚 대봉 출고일지")
+
+    # 데이터 로드
     drivers = load_drivers()
-    delivery_logs = load_delivery_logs() if st.session_state.get("show_delivery_logs", False) else []
 
-    # ── 기사 관리 ──
-    with st.expander("👤 배송 기사 관리", expanded=False):
-        nc1, nc2 = st.columns([4, 1])
-        with nc1:
-            new_drv = st.text_input("기사명", placeholder="이름 입력", label_visibility="collapsed", key="new_driver_input")
-        with nc2:
-            if st.button("추가", key="add_driver_btn", use_container_width=True):
-                if new_drv.strip() and new_drv.strip() not in drivers:
-                    r = requests.post(f"{SUPABASE_URL}/rest/v1/drivers",
-                        headers={**SB_HEADERS, "Prefer": "return=representation"},
-                        json={"name": new_drv.strip()}, timeout=10)
-                    if r.ok:
-                        st.success(f"'{new_drv.strip()}' 추가!")
-                        st.rerun()
-                    else:
-                        st.error(f"오류: {r.text[:100]}")
-                elif new_drv.strip() in drivers:
-                    st.warning("이미 등록된 기사입니다.")
+    # ── 탭 구성 ──
+    sub1, sub2, sub3 = st.tabs(["📥 출고 입력", "📋 출고 조회", "💰 경비"])
 
-        if drivers:
-            st.markdown(f"**등록 기사 {len(drivers)}명**")
-            for di, drv in enumerate(sorted(drivers)):
-                c1, c2, c3 = st.columns([5, 1, 1])
-                c1.write(f"👤 {drv}")
-                with c2:
-                    if st.button("수정", key=f"edit_drv_{di}", use_container_width=True):
-                        st.session_state[f"editing_drv_{di}"] = not st.session_state.get(f"editing_drv_{di}", False)
-                        st.rerun()
-                with c3:
-                    if st.button("삭제", key=f"del_drv_{di}", use_container_width=True):
-                        remove_driver(drv)
-                        st.rerun()
-                if st.session_state.get(f"editing_drv_{di}", False):
-                    e1, e2, e3 = st.columns([4, 1, 1])
-                    with e1:
-                        new_name = st.text_input("이름", value=drv, key=f"edit_drv_name_{di}", label_visibility="collapsed")
-                    with e2:
-                        if st.button("저장", key=f"save_drv_{di}", use_container_width=True, type="primary"):
-                            rename_driver(drv, new_name.strip())
-                            st.session_state[f"editing_drv_{di}"] = False
+    # ════════════════════════════════
+    # 서브탭 1: 출고 입력
+    # ════════════════════════════════
+    with sub1:
+        # 기사 관리
+        with st.expander("👤 기사 관리", expanded=False):
+            c1, c2 = st.columns([4, 1])
+            with c1:
+                new_drv = st.text_input("기사명", key="new_driver_input",
+                                        placeholder="이름 입력", label_visibility="collapsed")
+            with c2:
+                if st.button("추가", key="add_driver_btn", use_container_width=True):
+                    if new_drv.strip():
+                        if new_drv.strip() in drivers:
+                            st.warning("이미 있는 기사입니다.")
+                        else:
+                            r = requests.post(
+                                f"{SUPABASE_URL}/rest/v1/drivers",
+                                headers={**SB_HEADERS, "Prefer": "return=representation"},
+                                json={"name": new_drv.strip()}, timeout=10)
+                            if r.ok:
+                                st.cache_data.clear()
+                                st.success(f"'{new_drv.strip()}' 추가!")
+                                st.rerun()
+                            else:
+                                st.error(f"오류: {r.text[:100]}")
+            if drivers:
+                for di, drv in enumerate(sorted(drivers)):
+                    d1, d2, d3 = st.columns([5, 1, 1])
+                    d1.write(f"👤 {drv}")
+                    with d2:
+                        if st.button("수정", key=f"edit_drv_{di}", use_container_width=True):
+                            st.session_state[f"edit_drv_{di}"] = not st.session_state.get(f"edit_drv_{di}", False)
                             st.rerun()
-                    with e3:
-                        if st.button("취소", key=f"cancel_drv_{di}", use_container_width=True):
-                            st.session_state[f"editing_drv_{di}"] = False
+                    with d3:
+                        if st.button("삭제", key=f"del_drv_{di}", use_container_width=True):
+                            remove_driver(drv)
                             st.rerun()
-        else:
-            st.info("기사를 추가해 주세요.")
-
-    st.markdown("---")
-    st.markdown("### 📥 출고 입력")
-
-    if not drivers:
-        st.warning("먼저 배송 기사를 추가해 주세요.")
-    else:
-        # 기사 / 날짜
-        d1, d2 = st.columns(2)
-        with d1:
-            delivery_driver = st.selectbox("출고 기사", sorted(drivers), key="delivery_driver_select")
-        with d2:
-            delivery_date = st.date_input("출고일", value=today_kst(), key="delivery_date_input")
-
-        # 저장 후 초기화
-        if st.session_state.pop("_clear_customer_input", False):
-            st.session_state["_cust_override"] = "— 거래처 선택 —"
-            st.session_state["delivery_basket"] = []
-
-        # 거래처명
-        _all_customers_for_ac = load_customers()
-        _company_list = sorted([c.get("company","") for c in _all_customers_for_ac if c.get("company")])
-        _cust_opts = ["— 거래처 선택 —"] + _company_list
-        # 거래처 관리에서 선택 시 override
-        _override = st.session_state.pop("_cust_override", None)
-        if _override and _override in _cust_opts:
-            _default_idx = _cust_opts.index(_override)
-        else:
-            _prev = st.session_state.get("cust_all_dropdown", "— 거래처 선택 —")
-            _default_idx = _cust_opts.index(_prev) if _prev in _cust_opts else 0
-        _sel_cust = st.selectbox("거래처명", options=_cust_opts, index=_default_idx, key="cust_all_dropdown")
-        delivery_customer = _sel_cust if _sel_cust != "— 거래처 선택 —" else ""
-
-        # 거래처 관리
-        with st.expander("🏢 거래처 관리", expanded=False):
-            nc1, nc2 = st.columns(2)
-            with nc1:
-                new_cn = st.text_input("거래처명 *", key="new_del_cust_name", placeholder="필수")
-                new_cp = st.text_input("담당자", key="new_del_cust_person")
-            with nc2:
-                new_ct = st.text_input("연락처", key="new_del_cust_tel")
-                new_ca = st.text_input("주소", key="new_del_cust_addr")
-            if st.button("💾 거래처 저장", key="save_new_del_cust_btn", use_container_width=True, type="primary"):
-                if not new_cn.strip():
-                    st.error("거래처명을 입력하세요.")
-                else:
-                    existing = next((c for c in _all_customers_for_ac if c.get("company") == new_cn.strip()), None)
-                    upsert_customer({
-                        "id": existing["id"] if existing else str(uuid.uuid4()),
-                        "company": new_cn.strip(), "person": new_cp.strip(),
-                        "customer_tel": new_ct.strip(), "address": new_ca.strip(),
-                        "ref_text": "", "payment_terms": "",
-                    })
-                    st.success(f"'{new_cn.strip()}' 저장!")
-                    st.rerun()
-
-            st.markdown("---")
-            dc_search = st.text_input("거래처 검색", key="delivery_cust_search",
-                                      placeholder="검색", label_visibility="collapsed")
-            _mgmt_custs = [c for c in _all_customers_for_ac
-                           if dc_search.strip().lower() in c.get("company","").lower()]                           if dc_search.strip() else _all_customers_for_ac
-            st.markdown(f"총 {len(_mgmt_custs)}개")
-            with st.container(height=min(len(_mgmt_custs)*70, 300) if _mgmt_custs else None):
-                for ci, c in enumerate(_mgmt_custs):
-                    c1, c2, c3, c4 = st.columns([5, 1, 1, 1])
-                    with c1:
-                        _sub = " · ".join([x for x in [c.get("person",""), c.get("customer_tel","")] if x])
-                        st.markdown(f"**{c.get('company','-')}**{'  ' + _sub if _sub else ''}")
-                    with c2:
-                        if st.button("선택", key=f"mgmt_sel_{ci}", use_container_width=True):
-                            st.session_state["_cust_override"] = c.get("company","")
-                            st.rerun()
-                    with c3:
-                        if st.button("수정", key=f"mgmt_edit_{ci}", use_container_width=True):
-                            st.session_state[f"mgmt_editing_{ci}"] = not st.session_state.get(f"mgmt_editing_{ci}", False)
-                            st.rerun()
-                    with c4:
-                        if st.button("삭제", key=f"mgmt_del_{ci}", use_container_width=True):
-                            delete_customer(c.get("id",""))
-                            st.rerun()
-                    if st.session_state.get(f"mgmt_editing_{ci}", False):
-                        e1, e2, e3 = st.columns([3, 2, 2])
+                    if st.session_state.get(f"edit_drv_{di}", False):
+                        e1, e2, e3 = st.columns([4, 1, 1])
                         with e1:
-                            _en = st.text_input("거래처명", value=c.get("company",""), key=f"mgmt_cname_{ci}", label_visibility="collapsed")
+                            new_name = st.text_input("수정", value=drv,
+                                                     key=f"edit_name_{di}", label_visibility="collapsed")
                         with e2:
-                            _ep = st.text_input("담당자", value=c.get("person",""), key=f"mgmt_cperson_{ci}", label_visibility="collapsed")
+                            if st.button("저장", key=f"save_drv_{di}", use_container_width=True, type="primary"):
+                                rename_driver(drv, new_name.strip())
+                                st.session_state[f"edit_drv_{di}"] = False
+                                st.rerun()
                         with e3:
-                            _et = st.text_input("연락처", value=c.get("customer_tel",""), key=f"mgmt_ctel_{ci}", label_visibility="collapsed")
-                        _ea = st.text_input("주소", value=c.get("address",""), key=f"mgmt_caddr_{ci}", label_visibility="collapsed")
-                        s1, s2 = st.columns(2)
-                        with s1:
-                            if st.button("저장", key=f"mgmt_save_{ci}", use_container_width=True, type="primary"):
-                                upsert_customer({"id": c.get("id", str(uuid.uuid4())),
-                                    "company": _en.strip(), "person": _ep.strip(),
-                                    "customer_tel": _et.strip(), "address": _ea.strip(),
-                                    "ref_text": c.get("ref_text",""), "payment_terms": c.get("payment_terms","")})
-                                st.session_state[f"mgmt_editing_{ci}"] = False
+                            if st.button("취소", key=f"cancel_drv_{di}", use_container_width=True):
+                                st.session_state[f"edit_drv_{di}"] = False
                                 st.rerun()
-                        with s2:
-                            if st.button("취소", key=f"mgmt_cancel_{ci}", use_container_width=True):
-                                st.session_state[f"mgmt_editing_{ci}"] = False
-                                st.rerun()
-                    st.divider()
 
-        # ── 품목 선택 ──
-        st.markdown("### 📦 품목 선택")
+        if not drivers:
+            st.warning("먼저 기사를 추가하세요.")
+        else:
+            # 기사 / 날짜
+            col1, col2 = st.columns(2)
+            with col1:
+                delivery_driver = st.selectbox("출고 기사", sorted(drivers), key="delivery_driver_select")
+            with col2:
+                delivery_date = st.date_input("출고일", value=today_kst(), key="delivery_date_input")
 
-        # 바구니 초기화
-        if "delivery_basket" not in st.session_state:
-            st.session_state["delivery_basket"] = []
-        if st.session_state.get("delivery_basket_customer","") != delivery_customer:
-            st.session_state["delivery_basket"] = []
-            st.session_state["delivery_basket_customer"] = delivery_customer
+            # 거래처
+            customers = load_customers()
+            company_list = sorted([c.get("company", "") for c in customers if c.get("company")])
+            cust_opts = ["— 거래처 선택 —"] + company_list
+            sel_cust = st.selectbox("거래처명", cust_opts, key="cust_all_dropdown")
+            delivery_customer = sel_cust if sel_cust != "— 거래처 선택 —" else ""
 
-        if delivery_customer:
-            cust_items = get_customer_items(delivery_customer)
-            if cust_items:
-                # 품목을 selectbox로 선택
-                item_labels = [f"{i['name']} / {i['size']}" if i.get('size') else i['name'] for i in cust_items]
-                sel_item_label = st.selectbox("품목 선택", ["— 선택 —"] + item_labels,
-                                              key="item_select_box", label_visibility="collapsed")
-
-                if sel_item_label != "— 선택 —":
-                    sel_item = cust_items[item_labels.index(sel_item_label)]
-                    add_qty = st.number_input("수량", value=int(sel_item.get("qty", 0)),
-                                              min_value=0, step=100, key="item_qty_input")
-                    a1, a2 = st.columns(2)
-                    with a1:
-                        if st.button("➕ 바구니 추가", key="add_to_basket", use_container_width=True, type="primary"):
-                            st.session_state["delivery_basket"] = [
-                                b for b in st.session_state["delivery_basket"]
-                                if not (b["name"] == sel_item["name"] and b["size"] == sel_item.get("size",""))
-                            ]
-                            st.session_state["delivery_basket"].append({
-                                "name": sel_item["name"], "size": sel_item.get("size",""), "qty": int(add_qty)
-                            })
-                            upsert_item(delivery_customer, sel_item["name"], sel_item.get("size",""), int(add_qty))
-                            st.rerun()
-                    with a2:
-                        if st.button("🗑 품목 삭제", key="del_item_btn", use_container_width=True):
-                            delete_item(delivery_customer, sel_item["name"], sel_item.get("size",""))
-                            st.rerun()
-
-            # 새 품목 추가
-            if st.session_state.pop("_clear_pre_item", False):
-                st.session_state["pre_item_name"] = ""
-                st.session_state["pre_item_size"] = ""
-                st.session_state["pre_item_qty"] = 0
-
-            with st.expander("새 품목 추가", expanded=not bool(cust_items)):
-                p1, p2, p3 = st.columns([3, 1, 1])
-                with p1:
-                    pre_name = st.text_input("품목명", key="pre_item_name", placeholder="품목명")
-                with p2:
-                    pre_size = st.text_input("규격", key="pre_item_size", placeholder="규격")
-                with p3:
-                    pre_qty = st.number_input("기본수량", key="pre_item_qty", min_value=0, value=0, step=100)
-                if st.button("등록", key="add_pre_item_btn", use_container_width=True, type="primary"):
-                    if pre_name.strip():
-                        upsert_item(delivery_customer, pre_name.strip(), pre_size.strip(), pre_qty)
-                        st.session_state["_clear_pre_item"] = True
+            # 거래처 관리
+            with st.expander("🏢 거래처 추가/관리", expanded=False):
+                n1, n2 = st.columns(2)
+                with n1:
+                    new_cn = st.text_input("거래처명*", key="new_cust_name", placeholder="필수")
+                    new_cp = st.text_input("담당자", key="new_cust_person")
+                with n2:
+                    new_ct = st.text_input("연락처", key="new_cust_tel")
+                    new_ca = st.text_input("주소", key="new_cust_addr")
+                if st.button("거래처 저장", key="save_cust_btn", use_container_width=True, type="primary"):
+                    if new_cn.strip():
+                        existing = next((c for c in customers if c.get("company") == new_cn.strip()), None)
+                        upsert_customer({
+                            "id": existing["id"] if existing else str(uuid.uuid4()),
+                            "company": new_cn.strip(), "person": new_cp.strip(),
+                            "customer_tel": new_ct.strip(), "address": new_ca.strip(),
+                            "ref_text": "", "payment_terms": "",
+                        })
+                        st.success("저장!")
                         st.rerun()
                     else:
-                        st.warning("품목명을 입력하세요.")
-        else:
-            st.info("거래처를 먼저 선택하세요.")
+                        st.error("거래처명을 입력하세요.")
 
-        # ── 바구니 ──
-        basket = st.session_state.get("delivery_basket", [])
-        if basket:
-            st.markdown("**🛒 선택된 품목**")
-            _bdf = pd.DataFrame([{"품목": b["name"] + (f" / {b['size']}" if b.get("size") else ""),
-                                   "수량": b["qty"]} for b in basket])
-            st.dataframe(_bdf, use_container_width=True, hide_index=True)
-            total_qty = sum(b["qty"] for b in basket)
-            st.markdown(f"**총 {total_qty:,}개 · {len(basket)}품목**")
-            if st.button("🗑 바구니 비우기", key="clear_basket", use_container_width=False):
-                st.session_state["delivery_basket"] = []
-                st.rerun()
+                # 거래처 목록
+                if company_list:
+                    st.markdown("---")
+                    dc_kw = st.text_input("검색", key="cust_search_kw",
+                                          placeholder="거래처 검색", label_visibility="collapsed")
+                    filtered = [c for c in customers
+                                if dc_kw.strip().lower() in c.get("company", "").lower()]                                if dc_kw.strip() else customers
+                    for ci, c in enumerate(filtered):
+                        r1, r2, r3 = st.columns([5, 1, 1])
+                        sub = " · ".join([x for x in [c.get("person",""), c.get("customer_tel","")] if x])
+                        r1.markdown(f"**{c.get('company','')}**{'  ' + sub if sub else ''}")
+                        with r2:
+                            if st.button("수정", key=f"edit_cust_{ci}", use_container_width=True):
+                                st.session_state[f"edit_cust_{ci}"] = not st.session_state.get(f"edit_cust_{ci}", False)
+                                st.rerun()
+                        with r3:
+                            if st.button("삭제", key=f"del_cust_{ci}", use_container_width=True):
+                                delete_customer(c.get("id", ""))
+                                st.rerun()
+                        if st.session_state.get(f"edit_cust_{ci}", False):
+                            e1, e2 = st.columns(2)
+                            with e1:
+                                en = st.text_input("거래처명", value=c.get("company",""),
+                                                   key=f"edit_cn_{ci}", label_visibility="collapsed")
+                                ep = st.text_input("담당자", value=c.get("person",""),
+                                                   key=f"edit_cp_{ci}", label_visibility="collapsed")
+                            with e2:
+                                et = st.text_input("연락처", value=c.get("customer_tel",""),
+                                                   key=f"edit_ct_{ci}", label_visibility="collapsed")
+                                ea = st.text_input("주소", value=c.get("address",""),
+                                                   key=f"edit_ca_{ci}", label_visibility="collapsed")
+                            s1, s2 = st.columns(2)
+                            with s1:
+                                if st.button("저장", key=f"save_cust_{ci}", use_container_width=True, type="primary"):
+                                    upsert_customer({
+                                        "id": c.get("id", str(uuid.uuid4())),
+                                        "company": en.strip(), "person": ep.strip(),
+                                        "customer_tel": et.strip(), "address": ea.strip(),
+                                        "ref_text": c.get("ref_text",""),
+                                        "payment_terms": c.get("payment_terms",""),
+                                    })
+                                    st.session_state[f"edit_cust_{ci}"] = False
+                                    st.rerun()
+                            with s2:
+                                if st.button("취소", key=f"cancel_cust_{ci}", use_container_width=True):
+                                    st.session_state[f"edit_cust_{ci}"] = False
+                                    st.rerun()
+                        st.divider()
 
-        # ── 경비 입력 ──
-        if st.session_state.pop("_clear_expense_inputs", False):
-            for k in ["inline_meal_input", "inline_fuel_input", "inline_etc_input"]:
-                st.session_state[k] = 0
-            st.session_state["inline_etc_label"] = ""
+            # 품목 선택
+            if delivery_customer:
+                st.markdown("**📦 품목 선택**")
 
-        with st.expander("💰 경비 입력 (선택사항)", expanded=False):
-            ex1, ex2, ex3 = st.columns(3)
-            with ex1:
-                meal_amount = st.number_input("🍱 식비", min_value=0, value=0, step=1000, key="inline_meal_input")
-            with ex2:
-                fuel_amount = st.number_input("⛽ 주유비", min_value=0, value=0, step=1000, key="inline_fuel_input")
-            with ex3:
-                etc_amount = st.number_input("📦 기타", min_value=0, value=0, step=1000, key="inline_etc_input")
-            etc_label = st.text_input("기타 항목명", key="inline_etc_label", placeholder="예) 주차비")
-            total_exp = meal_amount + fuel_amount + etc_amount
-            if total_exp > 0:
-                st.info(f"💰 경비 합계: {total_exp:,}원")
+                # 바구니 초기화
+                if "basket" not in st.session_state:
+                    st.session_state["basket"] = []
+                if st.session_state.get("basket_customer","") != delivery_customer:
+                    st.session_state["basket"] = []
+                    st.session_state["basket_customer"] = delivery_customer
 
-        # ── 명세표 첨부 ──
-        st.markdown("**📎 거래명세표 첨부** (선택사항)")
-        _attach_mode = st.radio("첨부방식", ["📁 갤러리", "📷 카메라"], horizontal=True,
-                                key="attach_mode_radio", label_visibility="collapsed")
-        delivery_attachment = None
-        if _attach_mode == "📁 갤러리":
-            _f = st.file_uploader("이미지 선택", type=["jpg","jpeg","png","webp"],
-                                  key="delivery_attachment_input", label_visibility="collapsed")
-            if _f:
-                delivery_attachment = _f
-                st.image(_f, width=200)
-        else:
-            import streamlit.components.v1 as _cam_components
-            _b64_transfer = st.session_state.get("cam_b64_input","")
-            _cam_components.html("""
+                cust_items = get_customer_items(delivery_customer)
+                if cust_items:
+                    item_labels = [f"{i['name']}" + (f" / {i['size']}" if i.get("size") else "") for i in cust_items]
+                    sel_item = st.selectbox("품목", ["— 선택 —"] + item_labels,
+                                            key="item_select", label_visibility="collapsed")
+                    if sel_item != "— 선택 —":
+                        item_obj = cust_items[item_labels.index(sel_item)]
+                        iq1, iq2 = st.columns([3, 1])
+                        with iq1:
+                            add_qty = st.number_input("수량", value=int(item_obj.get("qty",0)),
+                                                      min_value=0, step=100, key="item_qty",
+                                                      label_visibility="collapsed")
+                        with iq2:
+                            if st.button("추가", key="add_basket", use_container_width=True, type="primary"):
+                                st.session_state["basket"] = [
+                                    b for b in st.session_state["basket"]
+                                    if not (b["name"]==item_obj["name"] and b["size"]==item_obj.get("size",""))
+                                ]
+                                st.session_state["basket"].append({
+                                    "name": item_obj["name"],
+                                    "size": item_obj.get("size",""),
+                                    "qty": int(add_qty)
+                                })
+                                upsert_item(delivery_customer, item_obj["name"], item_obj.get("size",""), int(add_qty))
+                                st.rerun()
+
+                # 새 품목 추가
+                if st.session_state.pop("_clear_pre_item", False):
+                    for k in ["pre_item_name","pre_item_size","pre_item_qty"]:
+                        st.session_state[k] = "" if k != "pre_item_qty" else 0
+
+                with st.expander("➕ 새 품목 추가", expanded=not bool(cust_items)):
+                    p1, p2, p3 = st.columns([3, 1, 1])
+                    with p1:
+                        pre_name = st.text_input("품목명", key="pre_item_name", placeholder="품목명")
+                    with p2:
+                        pre_size = st.text_input("규격", key="pre_item_size", placeholder="규격")
+                    with p3:
+                        pre_qty = st.number_input("수량", key="pre_item_qty", min_value=0, value=0, step=100)
+                    if st.button("등록", key="add_item_btn", use_container_width=True, type="primary"):
+                        if pre_name.strip():
+                            upsert_item(delivery_customer, pre_name.strip(), pre_size.strip(), pre_qty)
+                            st.session_state["_clear_pre_item"] = True
+                            st.rerun()
+                        else:
+                            st.warning("품목명을 입력하세요.")
+
+                # 바구니
+                basket = st.session_state.get("basket", [])
+                if basket:
+                    st.markdown("**🛒 선택된 품목**")
+                    df_basket = pd.DataFrame([{
+                        "품목": b["name"] + (f" / {b['size']}" if b.get("size") else ""),
+                        "수량": b["qty"]
+                    } for b in basket])
+                    st.dataframe(df_basket, use_container_width=True, hide_index=True)
+                    st.markdown(f"**총 {sum(b['qty'] for b in basket):,}개 · {len(basket)}품목**")
+                    if st.button("🗑 바구니 비우기", key="clear_basket"):
+                        st.session_state["basket"] = []
+                        st.rerun()
+            else:
+                st.info("거래처를 먼저 선택하세요.")
+
+            # 경비 입력
+            if st.session_state.pop("_clear_expenses", False):
+                for k in ["meal_amt","fuel_amt","etc_amt","etc_lbl"]:
+                    st.session_state[k] = 0 if k != "etc_lbl" else ""
+
+            with st.expander("💰 경비 입력 (선택사항)", expanded=False):
+                e1, e2, e3 = st.columns(3)
+                with e1:
+                    meal_amt = st.number_input("🍱 식비", min_value=0, value=0, step=1000, key="meal_amt")
+                with e2:
+                    fuel_amt = st.number_input("⛽ 주유", min_value=0, value=0, step=1000, key="fuel_amt")
+                with e3:
+                    etc_amt = st.number_input("📦 기타", min_value=0, value=0, step=1000, key="etc_amt")
+                etc_lbl = st.text_input("기타 항목명", key="etc_lbl", placeholder="예) 주차비")
+                total_exp = meal_amt + fuel_amt + etc_amt
+                if total_exp > 0:
+                    st.info(f"💰 합계: {total_exp:,}원")
+
+            # 명세표
+            st.markdown("**📎 거래명세표** (선택사항)")
+            att_mode = st.radio("첨부방식", ["📁 갤러리", "📷 카메라"], horizontal=True,
+                                key="attach_mode", label_visibility="collapsed")
+            delivery_attachment = None
+            if att_mode == "📁 갤러리":
+                uf = st.file_uploader("이미지", type=["jpg","jpeg","png","webp"],
+                                      key="att_upload", label_visibility="collapsed")
+                if uf:
+                    delivery_attachment = uf
+                    st.image(uf, width=200)
+            else:
+                import streamlit.components.v1 as _cv1
+                _cv1.html("""
 <style>
 #cw{width:100%;background:#000;border-radius:8px;overflow:hidden}
 #cv{width:100%;display:block}
-#bs{width:100%;padding:14px;font-size:20px;font-weight:900;background:#ef4444;color:#fff;border:none;cursor:pointer}
+#bs{width:100%;padding:14px;font-size:20px;font-weight:900;background:#ef4444;color:#fff;border:none;cursor:pointer;border-radius:0 0 8px 8px}
 #prev{display:none;width:100%;border-radius:8px;margin-top:6px}
-#br{display:none;gap:8px;margin-top:6px}
+#br{display:none;gap:8px;margin-top:6px;flex-wrap:nowrap}
 #bc{flex:1;padding:12px;font-size:18px;font-weight:800;background:#22c55e;color:#fff;border:none;border-radius:8px;cursor:pointer}
 #brt{flex:1;padding:12px;font-size:16px;background:#6b7280;color:#fff;border:none;border-radius:8px;cursor:pointer}
 </style>
 <div id="cw"><video id="cv" autoplay playsinline></video></div>
 <canvas id="can" style="display:none"></canvas>
 <button id="bs" onclick="shoot()">📷 사진 찍기</button>
-<img id="prev"/><div id="br"><button id="brt" onclick="retake()">↩ 다시</button><button id="bc" onclick="confirm()">✅ 확인</button></div>
+<img id="prev"/><div id="br"><button id="brt" onclick="retake()">↩ 다시</button><button id="bc" onclick="confirm_photo()">✅ 확인</button></div>
 <script>
 var s,cap,v=document.getElementById('cv'),c=document.getElementById('can');
-navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}).then(function(st){s=st;v.srcObject=st;}).catch(function(e){document.getElementById('cw').innerHTML='<p style="color:red;padding:12px;">카메라 오류: '+e.message+'</p>';});
+navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false})
+.then(function(st){s=st;v.srcObject=st;}).catch(function(e){document.getElementById('cw').innerHTML='<p style="color:red;padding:12px;">카메라 오류: '+e.message+'</p>';});
 function shoot(){c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);cap=c.toDataURL('image/jpeg',0.9);document.getElementById('prev').src=cap;document.getElementById('prev').style.display='block';document.getElementById('cw').style.display='none';document.getElementById('bs').style.display='none';document.getElementById('br').style.display='flex';}
 function retake(){document.getElementById('prev').style.display='none';document.getElementById('cw').style.display='block';document.getElementById('bs').style.display='block';document.getElementById('br').style.display='none';cap=null;}
-function confirm(){if(!cap)return;var doc=window.parent.document;var inp=doc.querySelector('input[aria-label="cam_b64_transfer"]');if(inp){var s=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s.call(inp,cap.split(',')[1]);inp.dispatchEvent(new Event('input',{bubbles:true}));}document.getElementById('br').innerHTML='<p style="color:#22c55e;font-size:16px;font-weight:900;padding:8px">✅ 저장 완료! 아래 저장 버튼을 누르세요.</p>';}
-</script>""", height=480)
-            _b64_transfer = st.text_input("cam_b64_transfer", key="cam_b64_input", label_visibility="hidden")
-            if _b64_transfer and len(_b64_transfer) > 100:
-                import base64 as _b64m
-                try:
-                    _img_bytes = _b64m.b64decode(_b64_transfer)
-                    from io import BytesIO as _BIO
-                    _bio = _BIO(_img_bytes); _bio.name="camera.jpg"; _bio.type="image/jpeg"
-                    delivery_attachment = _bio
-                    st.image(_img_bytes, width=200)
-                except: pass
+function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=doc.querySelector('input[aria-label="cam_b64"]');if(inp){var s2=Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype,'value').set;s2.call(inp,cap.split(',')[1]);inp.dispatchEvent(new Event('input',{bubbles:true}));}document.getElementById('br').innerHTML='<p style="color:#22c55e;font-size:16px;padding:8px">✅ 저장 완료!</p>';}
+</script>""", height=460)
+                cam_b64 = st.text_input("cam_b64", key="cam_b64_input", label_visibility="hidden")
+                if cam_b64 and len(cam_b64) > 100:
+                    import base64 as _b64m
+                    try:
+                        img_bytes = _b64m.b64decode(cam_b64)
+                        from io import BytesIO as _BIO
+                        bio = _BIO(img_bytes); bio.name="camera.jpg"; bio.type="image/jpeg"
+                        delivery_attachment = bio
+                        st.image(img_bytes, width=200)
+                    except: pass
 
-        # ── 저장 버튼 ──
-        if st.button("💾 출고일지 저장", use_container_width=True, key="save_delivery_btn", type="primary"):
-            basket = st.session_state.get("delivery_basket", [])
-            if not delivery_customer:
-                st.error("거래처를 선택하세요.")
-            elif not basket:
-                st.error("품목을 1개 이상 추가하세요.")
+            # 저장 버튼
+            if st.button("💾 출고일지 저장", key="save_delivery_btn",
+                         use_container_width=True, type="primary"):
+                basket = st.session_state.get("basket", [])
+                if not delivery_customer:
+                    st.error("거래처를 선택하세요.")
+                elif not basket:
+                    st.error("품목을 1개 이상 추가하세요.")
+                else:
+                    import base64
+                    att_b64 = att_mime = None
+                    if delivery_attachment:
+                        att_b64 = base64.b64encode(delivery_attachment.read()).decode()
+                        att_mime = getattr(delivery_attachment, "type", "image/jpeg") or "image/jpeg"
+                    for b in basket:
+                        append_delivery_log({
+                            "id": str(uuid.uuid4()), "driver": delivery_driver,
+                            "date": delivery_date.strftime("%Y-%m-%d"),
+                            "customer": delivery_customer, "item": b["name"],
+                            "size": b.get("size",""), "quantity": int(b["qty"]),
+                            "saved_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
+                            "attachment": att_b64, "attachment_mime": att_mime,
+                        })
+                    # 경비 저장
+                    exp_date = delivery_date.strftime("%Y-%m-%d")
+                    exp_at = now_kst().strftime("%Y-%m-%d %H:%M:%S")
+                    if meal_amt > 0:
+                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                            "date":exp_date,"category":"🍱 식사","amount":int(meal_amt),"memo":"","saved_at":exp_at})
+                    if fuel_amt > 0:
+                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                            "date":exp_date,"category":"⛽ 주유","amount":int(fuel_amt),"memo":"","saved_at":exp_at})
+                    if etc_amt > 0:
+                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                            "date":exp_date,"category":f"📦 {etc_lbl or '기타'}","amount":int(etc_amt),"memo":"","saved_at":exp_at})
+                    st.session_state["basket"] = []
+                    st.session_state["basket_customer"] = ""
+                    st.session_state["_clear_expenses"] = True
+                    st.session_state.pop("cust_all_dropdown", None)
+                    st.success(f"저장 완료! ({len(basket)}품목)")
+                    st.rerun()
+
+    # ════════════════════════════════
+    # 서브탭 2: 출고 조회
+    # ════════════════════════════════
+    with sub2:
+        if st.button("🔍 조회", key="load_logs_btn", use_container_width=True, type="primary"):
+            st.session_state["show_logs"] = True
+
+        if st.session_state.get("show_logs", False):
+            delivery_logs = load_delivery_logs()
+            if not delivery_logs:
+                st.info("출고 내역이 없습니다.")
             else:
-                import base64
-                att_b64 = att_mime = None
-                if delivery_attachment:
-                    att_b64 = base64.b64encode(delivery_attachment.read()).decode()
-                    att_mime = getattr(delivery_attachment, "type", "image/jpeg") or "image/jpeg"
-                for b in basket:
-                    append_delivery_log({
-                        "id": str(uuid.uuid4()), "driver": delivery_driver,
-                        "date": delivery_date.strftime("%Y-%m-%d"),
-                        "customer": delivery_customer, "item": b["name"],
-                        "size": b.get("size",""), "quantity": int(b["qty"]),
-                        "saved_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
-                        "attachment": att_b64, "attachment_mime": att_mime,
-                    })
-                    upsert_item(delivery_customer, b["name"], b.get("size",""), int(b["qty"]))
-                # 경비 저장
-                _exp_date = delivery_date.strftime("%Y-%m-%d")
-                _exp_at = now_kst().strftime("%Y-%m-%d %H:%M:%S")
-                if meal_amount > 0:
-                    append_expense({"id": str(uuid.uuid4()), "driver": delivery_driver,
-                        "date": _exp_date, "category": "🍱 식사", "amount": int(meal_amount), "memo": "", "saved_at": _exp_at})
-                if fuel_amount > 0:
-                    append_expense({"id": str(uuid.uuid4()), "driver": delivery_driver,
-                        "date": _exp_date, "category": "⛽ 주유", "amount": int(fuel_amount), "memo": "", "saved_at": _exp_at})
-                if etc_amount > 0:
-                    append_expense({"id": str(uuid.uuid4()), "driver": delivery_driver,
-                        "date": _exp_date, "category": f"📦 {etc_label or '기타'}", "amount": int(etc_amount), "memo": "", "saved_at": _exp_at})
-                st.session_state["_clear_customer_input"] = True
-                st.session_state["_clear_expense_inputs"] = True
-                st.success(f"저장 완료! ({len(basket)}품목)")
-                st.rerun()
+                # 필터
+                all_drvs = sorted(set(l.get("driver","") for l in delivery_logs))
+                drv_filter = st.radio("기사", ["전체"] + all_drvs, horizontal=True,
+                                      key="drv_filter", label_visibility="collapsed")
+                filtered = delivery_logs if drv_filter == "전체" else                     [l for l in delivery_logs if l.get("driver") == drv_filter]
 
-    st.markdown("---")
+                # 날짜 필터
+                from datetime import date
+                import calendar
+                today = date.today()
+                qb1, qb2, qb3 = st.columns(3)
+                with qb1:
+                    if st.button(f"당월", key="btn_this_month", use_container_width=True):
+                        st.session_state["date_from"] = today.replace(day=1)
+                        st.session_state["date_to"] = today
+                        st.rerun()
+                with qb2:
+                    prev_m = today.month - 1 or 12
+                    prev_y = today.year if today.month > 1 else today.year - 1
+                    if st.button(f"전월", key="btn_last_month", use_container_width=True):
+                        st.session_state["date_from"] = today.replace(year=prev_y, month=prev_m, day=1)
+                        st.session_state["date_to"] = today.replace(year=prev_y, month=prev_m,
+                            day=calendar.monthrange(prev_y, prev_m)[1])
+                        st.rerun()
+                with qb3:
+                    if st.button("전체", key="btn_all", use_container_width=True):
+                        st.session_state.pop("date_from", None)
+                        st.session_state.pop("date_to", None)
+                        st.rerun()
 
-    # ── 경비 현황 ──
-    with st.expander("💰 기사 경비 현황", expanded=False):
+                dt1, dt2 = st.columns(2)
+                with dt1:
+                    date_from = st.date_input("시작일", key="date_from")
+                with dt2:
+                    date_to = st.date_input("종료일", key="date_to")
+
+                if date_from:
+                    filtered = [l for l in filtered if l.get("date","") >= date_from.strftime("%Y-%m-%d")]
+                if date_to:
+                    filtered = [l for l in filtered if l.get("date","") <= date_to.strftime("%Y-%m-%d")]
+
+                st.markdown(f"**{len(filtered)}건**")
+
+                # 기사별 합계
+                if drv_filter == "전체":
+                    drv_sum = {}
+                    for l in filtered:
+                        drv_sum[l.get("driver","-")] = drv_sum.get(l.get("driver","-"),0) + int(l.get("quantity",0))
+                    cols = st.columns(min(len(drv_sum),4))
+                    for i,(d,t) in enumerate(drv_sum.items()):
+                        cols[i%4].metric(d, f"{t:,}개")
+
+                # 목록
+                sorted_logs = sorted(filtered, key=lambda x:(x.get("date",""),x.get("saved_at","")), reverse=True)
+                df = pd.DataFrame([{
+                    "출고일": l.get("date",""),
+                    "기사": l.get("driver",""),
+                    "거래처": l.get("customer",""),
+                    "품목": l.get("item","") + (f" / {l.get('size','')}" if l.get("size") else ""),
+                    "수량": l.get("quantity",0),
+                    "명세표": "📷" if l.get("attachment") else "-",
+                } for l in sorted_logs])
+                st.dataframe(df, use_container_width=True, hide_index=True,
+                             height=min(len(df)*35+40, 420))
+
+                # 편집
+                with st.expander("✏️ 편집 / 삭제", expanded=False):
+                    edit_labels = [
+                        f"{l.get('date','')} | {l.get('driver','')} | {l.get('customer','')} | {l.get('item','')} | {l.get('quantity',0):,}개"
+                        for l in sorted_logs]
+                    sel_edit = st.selectbox("편집할 항목", ["— 선택 —"] + edit_labels,
+                                            key="log_edit_select", label_visibility="collapsed")
+                    if sel_edit != "— 선택 —":
+                        import base64 as _b64
+                        ei = edit_labels.index(sel_edit)
+                        elog = sorted_logs[ei]
+                        lid = elog.get("id","")
+
+                        ec1, ec2 = st.columns(2)
+                        with ec1:
+                            new_c = st.selectbox("거래처", ["— 변경없음 —"] + company_list, key="edit_log_cust")
+                        with ec2:
+                            new_i = st.text_input("품목명", value=elog.get("item",""),
+                                                  key="edit_log_item", label_visibility="collapsed")
+                        new_q = st.number_input("수량", value=int(elog.get("quantity",0)),
+                                                min_value=0, step=1, key="edit_log_qty",
+                                                label_visibility="collapsed")
+                        s1, s2 = st.columns(2)
+                        with s1:
+                            if st.button("저장", key="save_edit_log", use_container_width=True, type="primary"):
+                                upd = {"quantity": int(new_q), "item": new_i.strip() or elog.get("item","")}
+                                if new_c != "— 변경없음 —": upd["customer"] = new_c
+                                update_delivery_log(lid, upd)
+                                st.success("수정 완료!")
+                                st.rerun()
+                        with s2:
+                            if st.button("🗑 삭제", key="del_edit_log", use_container_width=True):
+                                delete_delivery_log(lid)
+                                st.rerun()
+
+                        # 명세표
+                        if elog.get("attachment"):
+                            img = _b64.b64decode(elog["attachment"])
+                            mime = elog.get("attachment_mime","image/jpeg")
+                            st.image(img, use_container_width=True)
+                            ext = "jpg" if "jpeg" in mime else mime.split("/")[-1]
+                            da1, da2 = st.columns(2)
+                            with da1:
+                                st.download_button("⬇️ 다운로드", data=img,
+                                    file_name=f"명세표_{elog.get('customer','')}_{elog.get('date','')}.{ext}",
+                                    mime=mime, key="dl_att", use_container_width=True)
+                            with da2:
+                                if st.button("🗑 명세표 삭제", key="del_att", use_container_width=True):
+                                    update_delivery_log(lid, {"attachment":None,"attachment_mime":None})
+                                    st.rerun()
+                            new_att = st.file_uploader("교체", type=["jpg","jpeg","png","webp"],
+                                                       key="replace_att", label_visibility="collapsed")
+                            if new_att and st.button("교체 저장", key="save_replace", use_container_width=True):
+                                update_delivery_log(lid, {"attachment":_b64.b64encode(new_att.read()).decode(),
+                                                          "attachment_mime":new_att.type})
+                                st.rerun()
+                        else:
+                            new_up = st.file_uploader("📎 명세표 첨부", type=["jpg","jpeg","png","webp"],
+                                                      key="upload_att", label_visibility="collapsed")
+                            if new_up and st.button("📎 저장", key="save_att", use_container_width=True, type="primary"):
+                                update_delivery_log(lid, {"attachment":_b64.b64encode(new_up.read()).decode(),
+                                                          "attachment_mime":new_up.type})
+                                st.rerun()
+
+                st.download_button("📥 CSV", data=df.to_csv(index=False).encode("utf-8-sig"),
+                    file_name=f"delivery_{now_kst().strftime('%Y%m%d')}.csv",
+                    mime="text/csv", use_container_width=True)
+
+    # ════════════════════════════════
+    # 서브탭 3: 경비
+    # ════════════════════════════════
+    with sub3:
         expenses = load_expenses()
         if expenses:
-            _exp_drivers = sorted(set(e.get("driver","") for e in expenses))
-            _exp_drv_filter = st.radio("기사", ["전체"] + _exp_drivers, horizontal=True, key="exp_driver_filter", label_visibility="collapsed")
-            _exp_filtered = expenses if _exp_drv_filter == "전체" else [e for e in expenses if e.get("driver") == _exp_drv_filter]
+            exp_drvs = sorted(set(e.get("driver","") for e in expenses))
+            exp_filter = st.radio("기사", ["전체"] + exp_drvs, horizontal=True,
+                                  key="exp_drv_filter", label_visibility="collapsed")
+            exp_filtered = expenses if exp_filter == "전체" else                 [e for e in expenses if e.get("driver") == exp_filter]
 
-            # 집계
-            _cat_sum = {}
-            for e in _exp_filtered:
-                _cat_sum[e.get("category","-")] = _cat_sum.get(e.get("category","-"), 0) + int(e.get("amount",0))
-            _total_exp = sum(_cat_sum.values())
-            st.metric("합계", f"{_total_exp:,}원")
+            total = sum(e.get("amount",0) for e in exp_filtered)
+            st.metric("총 경비", f"{total:,}원")
 
-            # 목록
-            _exp_df = pd.DataFrame([{"날짜": e.get("date",""), "기사": e.get("driver",""),
-                "항목": e.get("category",""), "금액": e.get("amount",0), "메모": e.get("memo","")}
-                for e in sorted(_exp_filtered, key=lambda x: x.get("date",""), reverse=True)])
-            st.dataframe(_exp_df, use_container_width=True, hide_index=True, height=min(len(_exp_df)*35+40, 300))
-
-            # 경비 등록
-            st.markdown("**경비 추가**")
-            ex1, ex2 = st.columns(2)
-            with ex1:
-                exp_drv = st.selectbox("기사", sorted(drivers) if drivers else ["기사없음"], key="exp_driver_select")
-                exp_cat = st.selectbox("항목", ["🍱 식사","⛽ 주유","🅿️ 주차","🛣️ 통행료","📦 기타"], key="exp_category_select")
-            with ex2:
-                exp_date = st.date_input("날짜", value=today_kst(), key="exp_date_input")
-                exp_amt = st.number_input("금액", min_value=0, value=0, step=1000, key="exp_amount_input")
-            exp_memo = st.text_input("메모", key="exp_memo_input", placeholder="메모")
-            if st.button("💾 경비 등록", key="save_expense_btn", use_container_width=True, type="primary"):
-                if exp_amt > 0:
-                    append_expense({"id": str(uuid.uuid4()), "driver": exp_drv,
-                        "date": exp_date.strftime("%Y-%m-%d"), "category": exp_cat,
-                        "amount": int(exp_amt), "memo": exp_memo.strip(),
-                        "saved_at": now_kst().strftime("%Y-%m-%d %H:%M:%S")})
-                    st.success("등록 완료!")
-                    st.rerun()
+            exp_df = pd.DataFrame([{
+                "날짜": e.get("date",""), "기사": e.get("driver",""),
+                "항목": e.get("category",""), "금액": e.get("amount",0),
+            } for e in sorted(exp_filtered, key=lambda x:x.get("date",""), reverse=True)])
+            st.dataframe(exp_df, use_container_width=True, hide_index=True,
+                         height=min(len(exp_df)*35+40, 300))
 
             # 삭제
-            if st.button("🗑 선택 항목 삭제", key="del_exp_btn", use_container_width=False):
-                st.session_state["_show_exp_del"] = True
-            if st.session_state.get("_show_exp_del", False):
-                _del_opts = [f"{e.get('date','')} | {e.get('driver','')} | {e.get('category','')} | {e.get('amount',0):,}원"
-                             for e in _exp_filtered]
-                _del_sel = st.selectbox("삭제할 항목", _del_opts, key="del_exp_select", label_visibility="collapsed")
-                if st.button("삭제 확인", key="confirm_del_exp", use_container_width=True):
-                    _del_idx = _del_opts.index(_del_sel)
-                    delete_expense(_exp_filtered[_del_idx].get("id",""))
-                    st.session_state["_show_exp_del"] = False
-                    st.rerun()
+            del_labels = [f"{e.get('date','')} | {e.get('driver','')} | {e.get('category','')} | {e.get('amount',0):,}원"
+                          for e in exp_filtered]
+            del_sel = st.selectbox("삭제할 항목", ["— 선택 —"] + del_labels,
+                                   key="del_exp_sel", label_visibility="collapsed")
+            if del_sel != "— 선택 —" and st.button("🗑 삭제", key="del_exp_btn", use_container_width=True):
+                di = del_labels.index(del_sel)
+                delete_expense(exp_filtered[di].get("id",""))
+                st.rerun()
 
-            # CSV 다운로드
-            st.download_button("📥 CSV", data=_exp_df.to_csv(index=False).encode("utf-8-sig"),
+            st.download_button("📥 CSV", data=exp_df.to_csv(index=False).encode("utf-8-sig"),
                 file_name=f"expenses_{now_kst().strftime('%Y%m%d')}.csv", mime="text/csv")
         else:
             st.info("등록된 경비가 없습니다.")
 
-    st.markdown("---")
-
-    # ── 출고일지 조회 ──
-    st.markdown("### 📋 출고일지 조회")
-
-    if st.button("🔍 출고일지 조회", key="load_logs_btn", use_container_width=True):
-        st.session_state["show_delivery_logs"] = True
-
-    if st.session_state.get("show_delivery_logs", False) and delivery_logs:
-        # 기사 필터
-        _all_drvs = sorted(set(l.get("driver","") for l in delivery_logs))
-        selected_driver_filter = st.radio("기사", ["전체"] + _all_drvs, horizontal=True,
-                                          key="driver_filter_radio", label_visibility="collapsed")
-        filtered_logs = delivery_logs if selected_driver_filter == "전체" else             [l for l in delivery_logs if l.get("driver") == selected_driver_filter]
-
-        # 날짜 필터
-        from datetime import date
-        import calendar
-        _today = date.today()
-        _this_m = _today.replace(day=1)
-        _prev_m = _today.replace(month=_today.month-1, day=1) if _today.month > 1 else _today.replace(year=_today.year-1, month=12, day=1)
-        _prev_m_end = _today.replace(month=_today.month-1, day=calendar.monthrange(_today.year, _today.month-1)[1]) if _today.month > 1 else _today.replace(year=_today.year-1, month=12, day=31)
-
-        qb1, qb2, qb3 = st.columns(3)
-        with qb1:
-            if st.button(f"당월({_today.strftime('%m')}월)", key="btn_this_month", use_container_width=True):
-                st.session_state["filter_date_from"] = _this_m
-                st.session_state["filter_date_to"] = _today
+        # 경비 추가
+        st.markdown("---")
+        st.markdown("**경비 추가**")
+        ae1, ae2 = st.columns(2)
+        with ae1:
+            add_exp_drv = st.selectbox("기사", sorted(drivers) if drivers else ["없음"], key="add_exp_drv")
+            add_exp_cat = st.selectbox("항목", ["🍱 식사","⛽ 주유","🅿️ 주차","🛣️ 통행료","📦 기타"], key="add_exp_cat")
+        with ae2:
+            add_exp_date = st.date_input("날짜", value=today_kst(), key="add_exp_date")
+            add_exp_amt = st.number_input("금액", min_value=0, value=0, step=1000, key="add_exp_amt")
+        add_exp_memo = st.text_input("메모", key="add_exp_memo", placeholder="메모")
+        if st.button("💾 경비 등록", key="save_exp_btn", use_container_width=True, type="primary"):
+            if add_exp_amt > 0:
+                append_expense({"id":str(uuid.uuid4()),"driver":add_exp_drv,
+                    "date":add_exp_date.strftime("%Y-%m-%d"),"category":add_exp_cat,
+                    "amount":int(add_exp_amt),"memo":add_exp_memo.strip(),
+                    "saved_at":now_kst().strftime("%Y-%m-%d %H:%M:%S")})
+                st.success("등록 완료!")
                 st.rerun()
-        with qb2:
-            if st.button(f"전월({_prev_m.strftime('%m')}월)", key="btn_last_month", use_container_width=True):
-                st.session_state["filter_date_from"] = _prev_m
-                st.session_state["filter_date_to"] = _prev_m_end
-                st.rerun()
-        with qb3:
-            if st.button("전체", key="btn_all_period", use_container_width=True):
-                st.session_state.pop("filter_date_from", None)
-                st.session_state.pop("filter_date_to", None)
-                st.rerun()
+            else:
+                st.warning("금액을 입력하세요.")
 
-        dt1, dt2 = st.columns(2)
-        with dt1:
-            date_from = st.date_input("시작일", key="filter_date_from")
-        with dt2:
-            date_to = st.date_input("종료일", key="filter_date_to")
 
-        if date_from:
-            filtered_logs = [l for l in filtered_logs if l.get("date","") >= date_from.strftime("%Y-%m-%d")]
-        if date_to:
-            filtered_logs = [l for l in filtered_logs if l.get("date","") <= date_to.strftime("%Y-%m-%d")]
-
-        st.markdown(f"**조회 결과: {len(filtered_logs)}건**")
-
-        # 기사별 수량
-        if selected_driver_filter == "전체" and filtered_logs:
-            _drv_sum = {}
-            for l in filtered_logs:
-                _drv_sum[l.get("driver","-")] = _drv_sum.get(l.get("driver","-"), 0) + int(l.get("quantity",0))
-            _cols = st.columns(min(len(_drv_sum), 4))
-            for i, (drv, tot) in enumerate(_drv_sum.items()):
-                _cols[i % 4].metric(drv, f"{tot:,}개")
-
-        # 목록 dataframe
-        if filtered_logs:
-            _sorted = sorted(filtered_logs, key=lambda x: (x.get("date",""), x.get("saved_at","")), reverse=True)
-            _df = pd.DataFrame([{
-                "출고일": l.get("date",""),
-                "기사": l.get("driver",""),
-                "거래처": l.get("customer",""),
-                "품목": l.get("item","") + (f" / {l.get('size','')}" if l.get("size") else ""),
-                "수량": l.get("quantity",0),
-                "명세표": "📷" if l.get("attachment") else "-",
-            } for l in _sorted])
-            st.dataframe(_df, use_container_width=True, hide_index=True,
-                         height=min(len(_df)*35+40, 420))
-
-            # 편집
-            with st.expander("✏️ 편집 / 삭제", expanded=False):
-                _edit_labels = [
-                    f"{l.get('date','')} | {l.get('driver','')} | {l.get('customer','')} | {l.get('item','')} | {l.get('quantity',0):,}개"
-                    for l in _sorted]
-                _sel = st.selectbox("편집할 항목", ["— 선택 —"] + _edit_labels,
-                                    key="log_edit_select", label_visibility="collapsed")
-                if _sel != "— 선택 —":
-                    import base64 as _b64
-                    _ei = _edit_labels.index(_sel)
-                    _log = _sorted[_ei]
-                    _lid = _log.get("id","")
-                    _has_att = bool(_log.get("attachment"))
-
-                    e1, e2 = st.columns(2)
-                    with e1:
-                        _new_c = st.selectbox("거래처", ["— 변경없음 —"] + _company_list, key="edit_log_cust")
-                    with e2:
-                        _new_i = st.text_input("품목명", value=_log.get("item",""), key="edit_log_item", label_visibility="collapsed")
-                    _new_q = st.number_input("수량", value=int(_log.get("quantity",0)), min_value=0, step=1, key="edit_log_qty", label_visibility="collapsed")
-
-                    s1, s2 = st.columns(2)
-                    with s1:
-                        if st.button("저장", key="save_log_edit", use_container_width=True, type="primary"):
-                            _upd = {"quantity": int(_new_q), "item": _new_i.strip() or _log.get("item","")}
-                            if _new_c != "— 변경없음 —": _upd["customer"] = _new_c
-                            update_delivery_log(_lid, _upd)
-                            st.success("수정 완료!")
-                            st.rerun()
-                    with s2:
-                        if st.button("🗑 삭제", key="del_log_btn", use_container_width=True):
-                            delete_delivery_log(_lid)
-                            st.rerun()
-
-                    # 명세표
-                    if _has_att:
-                        _img = _b64.b64decode(_log["attachment"])
-                        _mime = _log.get("attachment_mime","image/jpeg")
-                        st.image(_img, use_container_width=True)
-                        _ext = "jpg" if "jpeg" in _mime else _mime.split("/")[-1]
-                        ba1, ba2 = st.columns(2)
-                        with ba1:
-                            st.download_button("⬇️ 다운로드", data=_img,
-                                file_name=f"명세표_{_log.get('customer','')}_{_log.get('date','')}.{_ext}",
-                                mime=_mime, key="dl_attach_btn", use_container_width=True)
-                        with ba2:
-                            if st.button("🗑 명세표 삭제", key="del_attach_btn", use_container_width=True):
-                                update_delivery_log(_lid, {"attachment": None, "attachment_mime": None})
-                                st.rerun()
-                        _new_att = st.file_uploader("교체", type=["jpg","jpeg","png","webp"], key="replace_attach_btn", label_visibility="collapsed")
-                        if _new_att and st.button("교체 저장", key="save_replace_btn", use_container_width=True):
-                            update_delivery_log(_lid, {"attachment": _b64.b64encode(_new_att.read()).decode(), "attachment_mime": _new_att.type})
-                            st.rerun()
-                    else:
-                        _new_up = st.file_uploader("📎 명세표 첨부", type=["jpg","jpeg","png","webp"], key="upload_attach_btn", label_visibility="collapsed")
-                        if _new_up and st.button("📎 저장", key="save_attach_btn", use_container_width=True, type="primary"):
-                            update_delivery_log(_lid, {"attachment": _b64.b64encode(_new_up.read()).decode(), "attachment_mime": _new_up.type})
-                            st.rerun()
-
-            # CSV
-            st.download_button(
-                f"📥 CSV 다운로드",
-                data=_df.to_csv(index=False).encode("utf-8-sig"),
-                file_name=f"delivery_{now_kst().strftime('%Y%m%d')}.csv",
-                mime="text/csv", use_container_width=True,
-            )
-    elif st.session_state.get("show_delivery_logs", False):
-        st.info("아직 저장된 출고일지가 없습니다.")
-
-# ══════════════════════════════════════════
 # 탭: 견적/발주 입력
 # ══════════════════════════════════════════
 
