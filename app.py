@@ -1,7 +1,8 @@
 import json
 import math
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, date, timezone, timedelta
+import calendar
 import requests
 from pathlib import Path
 
@@ -144,6 +145,44 @@ div[data-testid="stButton"] button {
     color: #111827 !important;
     border: 2px solid #d1d5db !important;
     font-size: 16px !important;
+}
+
+/* ── 팝업/다이얼로그 유연화 ── */
+div[role="dialog"], div[aria-modal="true"], div[data-testid="stModal"], div[data-baseweb="modal"], section[role="dialog"], section[aria-modal="true"], section[style*="position: fixed"], section[style*="position: absolute"], div[style*="position: fixed"], div[style*="position: absolute"] {
+    resize: both !important;
+    overflow: auto !important;
+    min-width: 420px !important;
+    min-height: 260px !important;
+    max-width: 95vw !important;
+    max-height: 95vh !important;
+    box-sizing: border-box !important;
+}
+
+.popup-pin-btn {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 9999 !important;
+    border: 1px solid rgba(55,65,81,.16);
+    background: rgba(255,255,255,.95);
+    color: #1f2937;
+    padding: 4px 9px;
+    border-radius: 9999px;
+    cursor: pointer;
+    font-size: 13px;
+    box-shadow: 0 4px 12px rgba(15,23,42,.08);
+}
+
+/* ── 탑/그리드 유연화 ── */
+div[style*="grid-template-columns"] {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+}
+[data-testid="stHorizontalBlock"] {
+    flex-wrap: wrap !important;
+}
+[data-testid="stHorizontalBlock"] > div {
+    min-width: 220px !important;
+    flex: 1 1 220px !important;
 }
 
 /* ── 헤딩 ── */
@@ -294,7 +333,7 @@ components.html(
         setTimeout(fixViewport, 3000);
     })();
     function attachSelectAll(){
-        const doc = window.parent.document;
+        const doc = window.document || window.parent.document;
         const inputs = doc.querySelectorAll('input');
         inputs.forEach(function(input){
             if (input.dataset.selectAllAttached === "1") return;
@@ -309,13 +348,83 @@ components.html(
     }
     attachSelectAll();
     setInterval(attachSelectAll, 1000);
+
+    function getPopupCandidates(doc) {
+        const selectors = [
+            'div[role="dialog"]',
+            'div[aria-modal="true"]',
+            'div[data-testid="stModal"]',
+            'div[data-baseweb="modal"]',
+            'div[role="presentation"]',
+            'section[role="dialog"]',
+            'section[aria-modal="true"]',
+            'section[style*="position: fixed"]',
+            'section[style*="position: absolute"]',
+            'div[style*="position: fixed"]',
+            'div[style*="position: absolute"]',
+            'div[style*="box-shadow"]',
+            'section[style*="box-shadow"]'
+        ];
+        const nodes = Array.from(new Set(selectors.flatMap(selector => Array.from(doc.querySelectorAll(selector)))));
+        return nodes.filter(function(el) {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 280 && rect.height > 180 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+        });
+    }
+
+    function attachPopupResize() {
+        const doc = window.document || window.parent.document;
+        const dialogs = getPopupCandidates(doc);
+        dialogs.forEach(function(dialog) {
+            if (dialog.dataset.popupResizeAttached === "1") return;
+            dialog.dataset.popupResizeAttached = "1";
+            dialog.style.resize = 'both';
+            dialog.style.overflow = 'auto';
+            dialog.style.boxSizing = 'border-box';
+            dialog.style.maxWidth = '95vw';
+            dialog.style.maxHeight = '95vh';
+            dialog.style.minWidth = '420px';
+            dialog.style.minHeight = '260px';
+            if (!dialog.style.position || dialog.style.position === 'static') {
+                dialog.style.position = 'relative';
+            }
+
+            var pin = doc.createElement('button');
+            pin.type = 'button';
+            pin.innerText = '📌 고정';
+            pin.className = 'popup-pin-btn';
+            pin.dataset.pinned = '0';
+            pin.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (pin.dataset.pinned === '1') {
+                    pin.dataset.pinned = '0';
+                    pin.innerText = '📌 고정';
+                    dialog.style.resize = 'both';
+                    if (dialog.dataset.savedWidth) dialog.style.width = dialog.dataset.savedWidth;
+                    if (dialog.dataset.savedHeight) dialog.style.height = dialog.dataset.savedHeight;
+                } else {
+                    pin.dataset.pinned = '1';
+                    pin.innerText = '📍 고정됨';
+                    dialog.dataset.savedWidth = dialog.style.width || dialog.getBoundingClientRect().width + 'px';
+                    dialog.dataset.savedHeight = dialog.style.height || dialog.getBoundingClientRect().height + 'px';
+                    dialog.style.width = dialog.getBoundingClientRect().width + 'px';
+                    dialog.style.height = dialog.getBoundingClientRect().height + 'px';
+                    dialog.style.resize = 'none';
+                }
+            });
+            dialog.style.position = 'relative';
+            dialog.appendChild(pin);
+        });
+    }
+    attachPopupResize();
+    setInterval(attachPopupResize, 1000);
     </script>
     """,
     height=0,
 )
 
 # ──────────────────────────────────────────
-# 한국 시간 (KST = UTC+9)
 # ──────────────────────────────────────────
 
 KST = timezone(timedelta(hours=9))
@@ -327,6 +436,39 @@ def now_kst():
 def today_kst():
     """오늘 한국 날짜 반환"""
     return datetime.now(KST).date()
+
+
+def month_range(year, month):
+    first = date(year, month, 1)
+    last_day = calendar.monthrange(year, month)[1]
+    return first, date(year, month, last_day)
+
+
+def get_named_date_range(name, today):
+    if name == "오늘":
+        return today, today
+    if name == "어제":
+        prev = today - timedelta(days=1)
+        return prev, prev
+    if name == "이번주":
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+        return start, end
+    if name == "다음주":
+        start = today - timedelta(days=today.weekday()) + timedelta(days=7)
+        end = start + timedelta(days=6)
+        return start, end
+    if name == "당월":
+        return today.replace(day=1), today
+    if name == "전월":
+        prev_m = today.month - 1 or 12
+        prev_y = today.year if today.month > 1 else today.year - 1
+        return month_range(prev_y, prev_m)
+    if name == "다음달":
+        next_m = today.month + 1 if today.month < 12 else 1
+        next_y = today.year if today.month < 12 else today.year + 1
+        return month_range(next_y, next_m)
+    return None, None
 
 
 # ──────────────────────────────────────────
@@ -446,6 +588,14 @@ def load_order_to_session(order):
 def get_default(key, default):
     return st.session_state.get(key, default)
 
+
+def coerce_positive_int(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
 # ──────────────────────────────────────────
 # 출고일지 (Supabase)
 # ──────────────────────────────────────────
@@ -465,6 +615,18 @@ def append_delivery_log(log):
 def update_delivery_log(log_id, data):
     sb_patch("delivery_logs", "id", log_id, data)
     st.cache_data.clear()
+
+
+def build_delivery_change_note(old_qty, new_qty, old_item=None, new_item=None, old_customer=None, new_customer=None):
+    parts = []
+    if old_qty is not None and new_qty is not None and int(old_qty) != int(new_qty):
+        parts.append(f"수량 {old_qty} → {new_qty}")
+    if old_item is not None and new_item is not None and str(old_item) != str(new_item):
+        parts.append(f"품목 {old_item} → {new_item}")
+    if old_customer is not None and new_customer is not None and str(old_customer) != str(new_customer):
+        parts.append(f"거래처 {old_customer} → {new_customer}")
+    return " / ".join(parts) or "내용 수정"
+
 
 def delete_delivery_log(log_id):
     sb_delete("delivery_logs", "id", log_id)
@@ -1492,19 +1654,25 @@ with tab_delivery:
                             add_qty = st.number_input("수량", value=int(item_obj.get("qty",0)),
                                                       min_value=0, step=100, key="item_qty",
                                                       label_visibility="collapsed")
+                            save_to_item_master = st.checkbox("전용품목장에 저장", key="save_item_to_customer")
                         with iq2:
                             if st.button("추가", key="add_basket", use_container_width=True, type="primary"):
-                                st.session_state["basket"] = [
-                                    b for b in st.session_state["basket"]
-                                    if not (b["name"]==item_obj["name"] and b["size"]==item_obj.get("size",""))
-                                ]
-                                st.session_state["basket"].append({
-                                    "name": item_obj["name"],
-                                    "size": item_obj.get("size",""),
-                                    "qty": int(add_qty)
-                                })
-                                upsert_item(delivery_customer, item_obj["name"], item_obj.get("size",""), int(add_qty))
-                                st.rerun()
+                                qty_value = coerce_positive_int(add_qty)
+                                if qty_value is None:
+                                    st.warning("출고 수량은 1개 이상이어야 합니다.")
+                                else:
+                                    st.session_state["basket"] = [
+                                        b for b in st.session_state["basket"]
+                                        if not (b["name"]==item_obj["name"] and b["size"]==item_obj.get("size",""))
+                                    ]
+                                    st.session_state["basket"].append({
+                                        "name": item_obj["name"],
+                                        "size": item_obj.get("size",""),
+                                        "qty": qty_value
+                                    })
+                                    if save_to_item_master:
+                                        upsert_item(delivery_customer, item_obj["name"], item_obj.get("size",""), qty_value)
+                                    st.rerun()
 
                 # 새 품목 추가
                 if st.session_state.pop("_clear_pre_item", False):
@@ -1518,12 +1686,16 @@ with tab_delivery:
                     with p2:
                         pre_size = st.text_input("규격", key="pre_item_size", placeholder="규격")
                     with p3:
-                        pre_qty = st.number_input("수량", key="pre_item_qty", min_value=0, value=0, step=100)
+                        pre_qty = st.number_input("수량", key="pre_item_qty", min_value=1, value=1, step=100)
                     if st.button("등록", key="add_item_btn", use_container_width=True, type="primary"):
                         if pre_name.strip():
-                            upsert_item(delivery_customer, pre_name.strip(), pre_size.strip(), pre_qty)
-                            st.session_state["_clear_pre_item"] = True
-                            st.rerun()
+                            qty_value = coerce_positive_int(pre_qty)
+                            if qty_value is None:
+                                st.warning("출고 수량은 1개 이상이어야 합니다.")
+                            else:
+                                upsert_item(delivery_customer, pre_name.strip(), pre_size.strip(), qty_value)
+                                st.session_state["_clear_pre_item"] = True
+                                st.rerun()
                         else:
                             st.warning("품목명을 입력하세요.")
 
@@ -1616,38 +1788,46 @@ function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=d
                 elif not basket:
                     st.error("품목을 1개 이상 추가하세요.")
                 else:
-                    import base64
-                    att_b64 = att_mime = None
-                    if delivery_attachment:
-                        att_b64 = base64.b64encode(delivery_attachment.read()).decode()
-                        att_mime = getattr(delivery_attachment, "type", "image/jpeg") or "image/jpeg"
+                    valid_basket = []
                     for b in basket:
-                        append_delivery_log({
-                            "id": str(uuid.uuid4()), "driver": delivery_driver,
-                            "date": delivery_date.strftime("%Y-%m-%d"),
-                            "customer": delivery_customer, "item": b["name"],
-                            "size": b.get("size",""), "quantity": int(b["qty"]),
-                            "saved_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
-                            "attachment": att_b64, "attachment_mime": att_mime,
-                        })
-                    # 경비 저장
-                    exp_date = delivery_date.strftime("%Y-%m-%d")
-                    exp_at = now_kst().strftime("%Y-%m-%d %H:%M:%S")
-                    if meal_amt > 0:
-                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
-                            "date":exp_date,"category":"🍱 식사","amount":int(meal_amt),"memo":"","saved_at":exp_at})
-                    if fuel_amt > 0:
-                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
-                            "date":exp_date,"category":"⛽ 주유","amount":int(fuel_amt),"memo":"","saved_at":exp_at})
-                    if etc_amt > 0:
-                        append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
-                            "date":exp_date,"category":f"📦 {etc_lbl or '기타'}","amount":int(etc_amt),"memo":"","saved_at":exp_at})
-                    st.session_state["basket"] = []
-                    st.session_state["basket_customer"] = ""
-                    st.session_state["_clear_expenses"] = True
-                    st.session_state.pop("cust_all_dropdown", None)
-                    st.success(f"저장 완료! ({len(basket)}품목)")
-                    st.rerun()
+                        qty_value = coerce_positive_int(b.get("qty"))
+                        if qty_value is not None:
+                            valid_basket.append({**b, "qty": qty_value})
+                    if not valid_basket:
+                        st.error("수량이 1개 이상인 품목만 저장할 수 있습니다.")
+                    else:
+                        import base64
+                        att_b64 = att_mime = None
+                        if delivery_attachment:
+                            att_b64 = base64.b64encode(delivery_attachment.read()).decode()
+                            att_mime = getattr(delivery_attachment, "type", "image/jpeg") or "image/jpeg"
+                        for b in valid_basket:
+                            append_delivery_log({
+                                "id": str(uuid.uuid4()), "driver": delivery_driver,
+                                "date": delivery_date.strftime("%Y-%m-%d"),
+                                "customer": delivery_customer, "item": b["name"],
+                                "size": b.get("size",""), "quantity": int(b["qty"]),
+                                "saved_at": now_kst().strftime("%Y-%m-%d %H:%M:%S"),
+                                "attachment": att_b64, "attachment_mime": att_mime,
+                            })
+                        # 경비 저장
+                        exp_date = delivery_date.strftime("%Y-%m-%d")
+                        exp_at = now_kst().strftime("%Y-%m-%d %H:%M:%S")
+                        if meal_amt > 0:
+                            append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                                "date":exp_date,"category":"🍱 식사","amount":int(meal_amt),"memo":"","saved_at":exp_at})
+                        if fuel_amt > 0:
+                            append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                                "date":exp_date,"category":"⛽ 주유","amount":int(fuel_amt),"memo":"","saved_at":exp_at})
+                        if etc_amt > 0:
+                            append_expense({"id":str(uuid.uuid4()),"driver":delivery_driver,
+                                "date":exp_date,"category":f"📦 {etc_lbl or '기타'}","amount":int(etc_amt),"memo":"","saved_at":exp_at})
+                        st.session_state["basket"] = []
+                        st.session_state["basket_customer"] = ""
+                        st.session_state["_clear_expenses"] = True
+                        st.session_state.pop("cust_all_dropdown", None)
+                        st.success(f"저장 완료! ({len(valid_basket)}품목)")
+                        st.rerun()
 
     # ════════════════════════════════
     # 서브탭 2: 출고 조회
@@ -1671,31 +1851,36 @@ function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=d
                 from datetime import date
                 import calendar
                 today = date.today()
-                qb1, qb2, qb3 = st.columns(3)
-                with qb1:
-                    if st.button(f"당월", key="btn_this_month", use_container_width=True):
-                        st.session_state["date_from"] = today.replace(day=1)
-                        st.session_state["date_to"] = today
-                        st.rerun()
-                with qb2:
-                    prev_m = today.month - 1 or 12
-                    prev_y = today.year if today.month > 1 else today.year - 1
-                    if st.button(f"전월", key="btn_last_month", use_container_width=True):
-                        st.session_state["date_from"] = today.replace(year=prev_y, month=prev_m, day=1)
-                        st.session_state["date_to"] = today.replace(year=prev_y, month=prev_m,
-                            day=calendar.monthrange(prev_y, prev_m)[1])
-                        st.rerun()
-                with qb3:
-                    if st.button("전체", key="btn_all", use_container_width=True):
-                        st.session_state.pop("date_from", None)
-                        st.session_state.pop("date_to", None)
-                        st.rerun()
+                filter_cols = st.columns(5)
+                labels = ["오늘", "어제", "이번주", "다음주", "당월"]
+                for col, label in zip(filter_cols, labels):
+                    with col:
+                        if st.button(label, key=f"btn_{label}", use_container_width=True):
+                            frm, to = get_named_date_range(label, today)
+                            st.session_state["date_from"] = frm
+                            st.session_state["date_to"] = to
+                            st.rerun()
+                filter_cols2 = st.columns(4)
+                for col, label in zip(filter_cols2, ["전월", "다음달", "전체", "초기화"]):
+                    with col:
+                        if st.button(label, key=f"btn_{label}", use_container_width=True):
+                            if label == "전체":
+                                st.session_state.pop("date_from", None)
+                                st.session_state.pop("date_to", None)
+                            elif label == "초기화":
+                                st.session_state["date_from"] = today
+                                st.session_state["date_to"] = today
+                            else:
+                                frm, to = get_named_date_range(label, today)
+                                st.session_state["date_from"] = frm
+                                st.session_state["date_to"] = to
+                            st.rerun()
 
                 dt1, dt2 = st.columns(2)
                 with dt1:
-                    date_from = st.date_input("시작일", key="date_from")
+                    date_from = st.date_input("시작일", value=st.session_state.get("date_from", today), key="date_from")
                 with dt2:
-                    date_to = st.date_input("종료일", key="date_to")
+                    date_to = st.date_input("종료일", value=st.session_state.get("date_to", today), key="date_to")
 
                 if date_from:
                     filtered = [l for l in filtered if l.get("date","") >= date_from.strftime("%Y-%m-%d")]
@@ -1721,13 +1906,14 @@ function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=d
                     "거래처": l.get("customer",""),
                     "품목": l.get("item","") + (f" / {l.get('size','')}" if l.get("size") else ""),
                     "수량": l.get("quantity",0),
+                    "변경사항": l.get("change_note", "-"),
                     "명세표": "📷" if l.get("attachment") else "-",
                 } for l in sorted_logs])
                 st.dataframe(df, use_container_width=True, hide_index=True,
                              height=min(len(df)*35+40, 420))
 
                 # 편집
-                with st.expander("✏️ 편집 / 삭제", expanded=False):
+                with st.expander("✏️ 편집", expanded=False):
                     edit_labels = [
                         f"{l.get('date','')} | {l.get('driver','')} | {l.get('customer','')} | {l.get('item','')} | {l.get('quantity',0):,}개"
                         for l in sorted_logs]
@@ -1745,20 +1931,32 @@ function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=d
                         with ec2:
                             new_i = st.text_input("품목명", value=elog.get("item",""),
                                                   key="edit_log_item", label_visibility="collapsed")
-                        new_q = st.number_input("수량", value=int(elog.get("quantity",0)),
-                                                min_value=0, step=1, key="edit_log_qty",
+                        new_q = st.number_input("수량", value=int(elog.get("quantity",1)),
+                                                min_value=1, step=1, key="edit_log_qty",
                                                 label_visibility="collapsed")
-                        s1, s2 = st.columns(2)
-                        with s1:
-                            if st.button("저장", key="save_edit_log", use_container_width=True, type="primary"):
-                                upd = {"quantity": int(new_q), "item": new_i.strip() or elog.get("item","")}
-                                if new_c != "— 변경없음 —": upd["customer"] = new_c
+                        if elog.get("change_note"):
+                            st.caption(f"기존 표시: {elog.get('change_note')}")
+                        st.caption("삭제는 매출 화면에서만 가능합니다.")
+                        if st.button("저장", key="save_edit_log", use_container_width=True, type="primary"):
+                            qty_value = coerce_positive_int(new_q)
+                            if qty_value is None:
+                                st.error("수량은 1개 이상이어야 합니다.")
+                            else:
+                                new_customer = new_c if new_c != "— 변경없음 —" else elog.get("customer", "")
+                                new_item = new_i.strip() or elog.get("item", "")
+                                change_note = build_delivery_change_note(
+                                    old_qty=elog.get("quantity", 0),
+                                    new_qty=qty_value,
+                                    old_item=elog.get("item", ""),
+                                    new_item=new_item,
+                                    old_customer=elog.get("customer", ""),
+                                    new_customer=new_customer,
+                                )
+                                upd = {"quantity": qty_value, "item": new_item}
+                                upd["customer"] = new_customer
+                                upd["change_note"] = change_note
                                 update_delivery_log(lid, upd)
-                                st.success("수정 완료!")
-                                st.rerun()
-                        with s2:
-                            if st.button("🗑 삭제", key="del_edit_log", use_container_width=True):
-                                delete_delivery_log(lid)
+                                st.success(f"수정 완료! {change_note}")
                                 st.rerun()
 
                         # 명세표
@@ -1805,13 +2003,51 @@ function confirm_photo(){if(!cap)return;var doc=window.parent.document;var inp=d
                                   key="exp_drv_filter", label_visibility="collapsed")
             exp_filtered = expenses if exp_filter == "전체" else                 [e for e in expenses if e.get("driver") == exp_filter]
 
+            from datetime import date
+            today = date.today()
+
             total = sum(e.get("amount",0) for e in exp_filtered)
             st.metric("총 경비", f"{total:,}원")
+
+            exp_filter_cols = st.columns(5)
+            exp_labels = ["오늘", "어제", "이번주", "다음주", "당월"]
+            for col, label in zip(exp_filter_cols, exp_labels):
+                with col:
+                    if st.button(label, key=f"exp_btn_{label}", use_container_width=True):
+                        frm, to = get_named_date_range(label, today)
+                        st.session_state["exp_date_from"] = frm
+                        st.session_state["exp_date_to"] = to
+                        st.rerun()
+            exp_filter_cols2 = st.columns(4)
+            for col, label in zip(exp_filter_cols2, ["전월", "다음달", "전체", "초기화"]):
+                with col:
+                    if st.button(label, key=f"exp_btn_{label}", use_container_width=True):
+                        if label == "전체":
+                            st.session_state.pop("exp_date_from", None)
+                            st.session_state.pop("exp_date_to", None)
+                        elif label == "초기화":
+                            st.session_state["exp_date_from"] = today
+                            st.session_state["exp_date_to"] = today
+                        else:
+                            frm, to = get_named_date_range(label, today)
+                            st.session_state["exp_date_from"] = frm
+                            st.session_state["exp_date_to"] = to
+                        st.rerun()
+            exp_dt1, exp_dt2 = st.columns(2)
+            with exp_dt1:
+                exp_date_from = st.date_input("시작일", value=st.session_state.get("exp_date_from", today), key="exp_date_from")
+            with exp_dt2:
+                exp_date_to = st.date_input("종료일", value=st.session_state.get("exp_date_to", today), key="exp_date_to")
+
+            if exp_date_from:
+                exp_filtered = [e for e in exp_filtered if e.get("date","") >= exp_date_from.strftime("%Y-%m-%d")]
+            if exp_date_to:
+                exp_filtered = [e for e in exp_filtered if e.get("date","") <= exp_date_to.strftime("%Y-%m-%d")]
 
             exp_df = pd.DataFrame([{
                 "날짜": e.get("date",""), "기사": e.get("driver",""),
                 "항목": e.get("category",""), "금액": e.get("amount",0),
-            } for e in sorted(exp_filtered, key=lambda x:x.get("date",""), reverse=True)])
+            } for e in sorted(exp_filtered, key=lambda x:(x.get("date",""), x.get("saved_at","")), reverse=True)])
             st.dataframe(exp_df, use_container_width=True, hide_index=True,
                          height=min(len(exp_df)*35+40, 300))
 
